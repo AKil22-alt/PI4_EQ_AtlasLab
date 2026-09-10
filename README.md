@@ -16,7 +16,7 @@ Sistema de gestão de laboratórios e ativos composto por uma aplicação web, u
 
 ## Fontes utilizadas para criar este projeto
 
-Fonte da documentação usada para a escrita deste README: [Link Text](https://docs.github.com/pt/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts).
+Fonte da documentação usada para a escrita deste README: [README DOCS](https://docs.github.com/pt/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts).
 
 > [!NOTE]
 > Esse projeto não recebera suporte depois de 2026! Fique atento as versões de pacotes utilizados para compilar o projeto
