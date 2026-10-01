@@ -1,0 +1,28 @@
+@theme {
+    --color-dark-red: #640509;
+    --color-red-primary: #C8102E;
+    --color-bg-red: #FFF1F3;
+
+    --color-red-1: #985658;
+    --color-red-2: #FFF1F3;
+    --color-red-3: #B68C8E;
+    --color-red-4: #8F0B20;
+    --color-red-5: #830E08;
+    --color-red-6: #B40001;
+
+    --color-bg: #F7F8FA;
+    --color-black: #000000;
+    --color-white: #FFFFFF;
+
+    --color-text-primary: #171A21;
+    --color-text-secondary: #3D3D3D;
+    --color-text-placeholder: #AAAAAA;
+}
+
+:root {
+  --gradient-primary: linear-gradient(
+    135deg,
+    #640509 0%,
+    #902A2E 100%
+  );
+}
