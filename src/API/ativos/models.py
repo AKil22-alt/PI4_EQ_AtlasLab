@@ -11,7 +11,7 @@ class DenunciaF(models.Model):
     def __str__(self):
         return f"Denúncia {self.id_denuncia}"
 
-# 2. Grupo_A
+# 2. Grupo_A A = ativos
 class GrupoA(models.Model):
     id_grupo_a = models.AutoField(primary_key=True)
     nome = models.CharField(max_length=100)
@@ -30,7 +30,7 @@ class SalaLab(models.Model):
     localizacao = models.CharField(max_length=150)
     descricao = models.TextField(blank=True, null=True)
     
-    # Relacionamento 0,1 recursivo ou com grupo/ativo (conforme o losango 'contem' saindo de Salas/Labs para si mesma/outros)
+    # Relacionamento 0,1 
     sala_pai = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='sub_salas')
 
     def __str__(self):

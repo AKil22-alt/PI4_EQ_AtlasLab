@@ -23,12 +23,53 @@ class SalaLabSerializer(serializers.ModelSerializer):
 class UsuarioSerializer(serializers.ModelSerializer):
     # Oculta a senha em leituras por segurança
     
-    senha = serializers.CharField(write_only=True)
+    nome = serializers.CharField(
+      max_length=150,
+      min_length=3,
+      required=True,
+      allow_blank=False,
+      error_messages={
+          'required': 'O nome de usuário é obrigatório.',
+          'min_length': 'O nome de usuário deve ter pelo menos 3 caracteres.',
+      }
+    )
+
+    senha = serializers.CharField(write_only=True, required = True)
 
     class Meta:
         model = Usuario
         fields = ['id_user', 'nome', 'email', 'cargo', 'foto', 'senha', 'salas_responsaveis']
 
+    def validated_nome(self, value):
+
+        if Usuario.objects.filter(nome-value).exists():
+            raise serializers.ValidationError(
+                "Este username ja está cadastrado"
+            )
+
+    def validate_email(self, value):
+
+        if Usuario.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Este E-mail ja cadastrado")     
+        return value
+
+    def create(self, validated_data):
+
+        usuario = Usuario.objects.create_user(
+            nome = validated_data['nome'],
+            email = validated_data['email']
+        )
+
+        return usuario
+    
+    def representacao(self, instance):
+        return{
+            "id": instance.id,
+            "nome": instance.usuario.nome,
+            "email": instance.email
+        }
+
+    
 class DenunciaFazSerializer(serializers.ModelSerializer):
     class Meta:
         model = DenunciaFaz
