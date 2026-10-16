@@ -62,4 +62,45 @@ void main() {
     expect(find.text('Última Manutenção'), findsOneWidget);
     expect(find.text('10/09/2026'), findsOneWidget);
   });
+
+  testWidgets('TelaHome filtra patrimônios pelo número digitado no campo de pesquisa', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: TelaHome()));
+
+    // Ambos os itens devem estar visíveis inicialmente
+    expect(find.text('Monitor Dell 24'), findsOneWidget);
+    expect(find.text('Workstation Corporativo Dell'), findsOneWidget);
+
+    // Digita o patrimônio do Monitor Dell 24 (1236654)
+    final campoPesquisa = find.byType(TextField);
+    expect(campoPesquisa, findsOneWidget);
+    await tester.enterText(campoPesquisa, '1236654');
+    await tester.pumpAndSettle();
+
+    // Apenas o Monitor Dell 24 deve aparecer na lista filtrada
+    expect(find.text('Monitor Dell 24'), findsOneWidget);
+    expect(find.text('Workstation Corporativo Dell'), findsNothing);
+
+    // Digita o patrimônio da Workstation (1359867)
+    await tester.enterText(campoPesquisa, '1359867');
+    await tester.pumpAndSettle();
+
+    // Apenas a Workstation deve aparecer na lista filtrada
+    expect(find.text('Workstation Corporativo Dell'), findsOneWidget);
+    expect(find.text('Monitor Dell 24'), findsNothing);
+
+    // Digita um patrimônio inexistente
+    await tester.enterText(campoPesquisa, '9999999');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Monitor Dell 24'), findsNothing);
+    expect(find.text('Workstation Corporativo Dell'), findsNothing);
+    expect(find.text('Nenhum patrimônio encontrado com "9999999"'), findsOneWidget);
+
+    // Limpa a pesquisa e verifica o retorno de todos os itens
+    await tester.enterText(campoPesquisa, '');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Monitor Dell 24'), findsOneWidget);
+    expect(find.text('Workstation Corporativo Dell'), findsOneWidget);
+  });
 }

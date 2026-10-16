@@ -19,11 +19,19 @@ class TelaHome extends StatefulWidget {
 class _TelaHomeState extends State<TelaHome> {
   String? _ultimoConteudo;
   bool _mostrarJsonBruto = false;
+  final TextEditingController _pesquisaController = TextEditingController();
+  String _filtroPesquisa = '';
 
   @override
   void initState() {
     super.initState();
     _ultimoConteudo = widget.initialContent;
+  }
+
+  @override
+  void dispose() {
+    _pesquisaController.dispose();
+    super.dispose();
   }
 
   Future<void> _abrirLeitor() async {
@@ -62,7 +70,7 @@ class _TelaHomeState extends State<TelaHome> {
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Exemplo carregado: ${item.nome}'),
+        content: Text('Patrimônio carregado: ${item.patrimonio} (${item.nome})'),
         backgroundColor: AppColors.mainColor,
       ),
     );
@@ -106,7 +114,7 @@ class _TelaHomeState extends State<TelaHome> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -118,7 +126,7 @@ class _TelaHomeState extends State<TelaHome> {
               else
                 _buildGenericResultCard(_ultimoConteudo!),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
               // Botões de ação principais
               Row(
@@ -128,7 +136,7 @@ class _TelaHomeState extends State<TelaHome> {
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.mainColor,
                         foregroundColor: AppColors.textOnMain,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -141,7 +149,7 @@ class _TelaHomeState extends State<TelaHome> {
                             ? 'Abrir Câmera'
                             : 'Escanear Novamente',
                         style: const TextStyle(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -178,10 +186,10 @@ class _TelaHomeState extends State<TelaHome> {
                 ],
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              // Seção de atalho para dados de teste (dados.json)
-              _buildExemplosSection(),
+              // Seção de pesquisa e listagem de patrimônios (dados.json)
+              _buildSecaoPesquisaPatrimonios(itemPatrimonio),
             ],
           ),
         ),
@@ -193,43 +201,43 @@ class _TelaHomeState extends State<TelaHome> {
   Widget _buildEmptyState() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       decoration: BoxDecoration(
         color: AppColors.fundoCardsClaro,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.borderCard, width: 1.5),
       ),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppColors.mainColor.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.qr_code_scanner_rounded,
-              size: 64,
+              size: 42,
               color: AppColors.mainColor,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 10),
           const Text(
             'Nenhum QR Code lido ainda',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppColors.textPrimary,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           const Text(
-            'Toque no botão abaixo para abrir a câmera ou use os exemplos de teste do dados.json',
+            'Toque no botão abaixo para abrir a câmera ou pesquise um patrimônio na lista abaixo',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: AppColors.textSecondary,
-              height: 1.4,
+              height: 1.3,
             ),
             textAlign: TextAlign.center,
           ),
@@ -536,61 +544,281 @@ class _TelaHomeState extends State<TelaHome> {
     );
   }
 
-  /// Atalhos para testar com itens do dados.json
-  Widget _buildExemplosSection() {
+  /// Seção de pesquisa e listagem de patrimônios (baseado em dados.json)
+  Widget _buildSecaoPesquisaPatrimonios(PatrimonioModel? itemSelecionado) {
+    final termo = _filtroPesquisa.trim().toLowerCase();
+    final itensFiltrados = PatrimonioModel.exemplos.where((item) {
+      if (termo.isEmpty) return true;
+      return item.patrimonio.toLowerCase().contains(termo);
+    }).toList();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderCard.withValues(alpha: 0.6)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(
+          // Cabeçalho da seção de pesquisa
+          Row(
             children: [
-              Icon(
-                Icons.science_outlined,
-                size: 18,
-                color: AppColors.mainColor,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.fundoCardsClaro,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: AppColors.mainColor,
+                ),
               ),
-              SizedBox(width: 8),
-              Text(
-                'Testar com dados do dados.json:',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pesquisar Patrimônio',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Pesquise pelo código ou selecione um item na lista',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: PatrimonioModel.exemplos.map((item) {
-              return ActionChip(
-                backgroundColor: AppColors.fundoCardsClaro,
-                side: const BorderSide(color: AppColors.borderCard),
-                avatar: const Icon(
-                  Icons.qr_code_2_rounded,
-                  size: 16,
+          const SizedBox(height: 14),
+
+          // Campo de busca pelo número do patrimônio
+          TextField(
+            controller: _pesquisaController,
+            keyboardType: TextInputType.text,
+            decoration: InputDecoration(
+              hintText: 'Digite o patrimônio (ex: 1236654)...',
+              hintStyle: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+              ),
+              prefixIcon: const Icon(
+                Icons.tag_rounded,
+                color: AppColors.mainColor,
+                size: 20,
+              ),
+              suffixIcon: _filtroPesquisa.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      color: AppColors.textSecondary,
+                      tooltip: 'Limpar pesquisa',
+                      onPressed: () {
+                        setState(() {
+                          _pesquisaController.clear();
+                          _filtroPesquisa = '';
+                        });
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: AppColors.fundoCardsClaro,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.borderCard),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.borderCard),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
                   color: AppColors.mainColor,
+                  width: 1.5,
                 ),
-                label: Text(
-                  item.nome,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                onPressed: () => _carregarExemplo(item),
-              );
-            }).toList(),
+              ),
+            ),
+            onChanged: (valor) {
+              setState(() {
+                _filtroPesquisa = valor.trim();
+              });
+            },
           ),
+          const SizedBox(height: 14),
+
+          // Lista de patrimônios filtrados
+          if (itensFiltrados.isEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+              alignment: Alignment.center,
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.search_off_rounded,
+                    size: 36,
+                    color: AppColors.textSecondary.withValues(alpha: 0.6),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Nenhum patrimônio encontrado com "$_filtroPesquisa"',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: itensFiltrados.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = itensFiltrados[index];
+                final bool isSelected =
+                    itemSelecionado?.patrimonio == item.patrimonio;
+
+                return InkWell(
+                  onTap: () => _carregarExemplo(item),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.fundoCardsClaro
+                          : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.mainColor
+                            : AppColors.borderCard.withValues(alpha: 0.5),
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.mainColor
+                                : AppColors.fundoCards,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.devices_rounded,
+                            color: isSelected
+                                ? AppColors.textOnMain
+                                : AppColors.mainColorDark,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? AppColors.mainColor.withValues(alpha: 0.15)
+                                          : AppColors.fundoCardsClaro,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppColors.mainColor
+                                            : AppColors.borderCard,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Patrimônio: ${item.patrimonio}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.mainColorDark,
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    item.status,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.statusAtivo,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                item.nome,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Local: ${item.localAtual} • Resp: ${item.responsavel}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          isSelected
+                              ? Icons.check_circle_rounded
+                              : Icons.chevron_right_rounded,
+                          color: isSelected
+                              ? AppColors.mainColor
+                              : AppColors.textSecondary,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
