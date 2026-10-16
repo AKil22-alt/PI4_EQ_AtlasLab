@@ -1,4 +1,4 @@
-### PI4_EQ_AtlasLab - V3
+### PI4_EQ_AtlasLab - V2
 
 # PROJETO: Sistema de Gestão de Laboratórios e Ativos
 ### CSTADS125N4 
