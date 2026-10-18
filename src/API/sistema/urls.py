@@ -1,22 +1,52 @@
-"""
-URL configuration for sistema project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/6.1/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+
+from ativos import views
+
+# --- CRUD via ViewSets -------------------------------------------------------
+# Ações extras do Ativo (qr-code, movimentar, inativar, reativar, historico)
+# são declaradas com @action dentro de AtivoViewSet e o router as expõe sozinho:
+#   GET  /api/ativos/{id}/qr-code/     (url_path="qr-code")
+#   POST /api/ativos/{id}/movimentar/
+#   POST /api/ativos/{id}/inativar/
+#   POST /api/ativos/{id}/reativar/
+#   GET  /api/ativos/{id}/historico/
+router = DefaultRouter()
+router.register("usuarios", views.UsuarioViewSet, basename="usuario")
+router.register("grupos", views.GrupoAViewSet, basename="grupo")
+router.register("salas", views.SalaLabViewSet, basename="sala")
+router.register("ativos", views.AtivoViewSet, basename="ativo")
+router.register("ordens-servico", views.OrdemServicoViewSet, basename="ordem-servico")
+router.register("manutencoes", views.ManutencaoAViewSet, basename="manutencao")
+router.register("movimentacoes", views.MovimentacoesAViewSet, basename="movimentacao")
+router.register("denuncias", views.DenunciaFViewSet, basename="denuncia")
+router.register("logs", views.LogAuditoriaViewSet, basename="log")  # somente ADM
+
+# --- Endpoints avulsos (saúde e autenticação) -----------------------------------
+api_urlpatterns = [
+    path("health/", views.HealthView.as_view(), name="health"),
+    path("auth/login/", views.LoginView.as_view(), name="auth-login"),
+    path("auth/logout/", views.LogoutView.as_view(), name="auth-logout"),
+    path("auth/me/", views.MeView.as_view(), name="auth-me"),
+    path("", include(router.urls)),
+]
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path("admin/", admin.site.urls),
+    path("api/", include(api_urlpatterns)),
 ]
+
+# Fotos de usuários e denúncias (ImageField) durante o desenvolvimento.
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# ---------------------------------------------------------------------------
+# Contrato esperado em ativos/views.py
+#   ViewSets: UsuarioViewSet, GrupoAViewSet, SalaLabViewSet, AtivoViewSet,
+#             OrdemServicoViewSet, ManutencaoAViewSet, MovimentacoesAViewSet,
+#             DenunciaFViewSet, LogAuditoriaViewSet
+#   APIViews: HealthView, LoginView, LogoutView, MeView
+# ---------------------------------------------------------------------------
