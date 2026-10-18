@@ -57,7 +57,7 @@ class Usuario(models.Model):
     def __str__(self):
         return self.nome
 
-# Relacionamento 'Faz' entre Denuncias_F (1,n) e Usuarios (0,1)
+# Relacionamento Denuncias_F (1,n) e Usuarios (0,1) (ALTERAR)
 class DenunciaFaz(models.Model):
     denuncia = models.ForeignKey(DenunciaF, on_delete=models.CASCADE)
     usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True)
@@ -94,7 +94,7 @@ class OrdemServico(models.Model):
     def __str__(self):
         return f"OS {self.id_ordem} - {self.titulo}"
 
-# 7. Manutenção_A
+# 7. Manutencao_A
 class ManutencaoA(models.Model):
     id_man = models.AutoField(primary_key=True)
     tipo = models.CharField(max_length=50)
@@ -113,7 +113,7 @@ class ManutencaoA(models.Model):
     def __str__(self):
         return f"Manutenção {self.id_man} - {self.tipo}"
 
-# 8. Movimentações_A
+# 8. Movimentacoes_A
 class MovimentacoesA(models.Model):
     id_mov = models.AutoField(primary_key=True)
     justificativa = models.TextField()

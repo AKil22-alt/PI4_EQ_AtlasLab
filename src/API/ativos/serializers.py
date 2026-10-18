@@ -76,7 +76,6 @@ class DenunciaFazSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class AtivoSerializer(serializers.ModelSerializer):
-    # Opcional: aninha os serializers para exibição detalhada nas consultas (GET)
     grupo_detalhes = GrupoASerializer(source='grupo', read_only=True)
     sala_detalhes = SalaLabSerializer(source='sala', read_only=True)
 
