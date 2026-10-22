@@ -9,18 +9,30 @@ A tabela relaciona ameaças específicas do fluxo do AtlasLab aos controles da S
 
 | Componente | Ameaça / cenário | Consequência | Controle de segurança | Situação nesta versão |
 |---|---|---|---|---|
-| Leitor de QR Code/Code 128 e consulta na API | Um marcador é adulterado, trocado ou contém um identificador inexistente ou pertencente a outro ativo. | A aplicação pode exibir informações do patrimônio errado ou associar uma movimentação ao equipamento incorreto. | A API gera um identificador único no cadastro, consulta o valor recebido contra o registro central e retorna `404` quando não encontra correspondência. O endpoint de imagem gera o QR a partir do identificador guardado no banco. | **Implementado parcialmente no código — validar no leitor mobile.** A validação da existência está implementada; a leitura e integração com app/RA precisam de teste integrado. |
-| Campos enviados à API | Um usuário envia dados malformados, campos fora do limite ou identificadores inválidos. | Erros de processamento, consulta indevida ou corrupção dos dados do ativo. | Serializers do DRF validam tipos, obrigatoriedade e limites definidos nos modelos; as consultas usam o ORM; filtros numéricos inválidos retornam erro de validação. | **Implementado no código — executar testes com payloads inválidos.** |
-| Login e endpoints administrativos | Um usuário tenta chamar diretamente um endpoint reservado a perfil de maior privilégio. | Consulta, cadastro, alteração ou exclusão de dados sem autorização. | Login emite token aleatório com expiração de 12 horas; o banco guarda apenas o hash SHA-256 do token; as rotas verificam o cargo (`ADM`, `TEC`, `CLB`) no servidor. | **Implementado no código — executar testes de RBAC** (RS01, RF01–RF04 e CA05). |
-| Movimentação e histórico dos ativos | Uma mudança de sala é realizada sem registro ou o histórico é alterado sem rastreabilidade. | Perda do histórico, localização incorreta e dificuldade de auditoria. | A movimentação registra usuário, data/hora, ativo, justificativa e local. A API atualiza `local_atual`, registra auditoria da mudança e mantém o endpoint de movimentações somente para consulta/criação, sem edição ou exclusão direta. | **Implementado no código — validar a sequência de movimentações e o histórico.** |
-| Senhas, tokens, segredos e comunicação cliente-servidor | Credenciais são expostas no tráfego, nos logs ou em arquivos versionados no Git. | Comprometimento de contas e acesso indevido. | Senhas são processadas com `BCryptSHA256PasswordHasher`; tokens de API não são gravados em texto puro; logs omitem senha e token; `.env` está no `.gitignore`; a configuração permite redirecionamento HTTPS em produção. | **Implementado na configuração/código.** A exigência de HTTPS só pode ser validada após publicar a API atrás de HTTPS. |
-| Banco de dados e cópias de segurança | Uma falha ou exclusão acidental torna os registros indisponíveis ou incorretos. | Perda de cadastros, movimentações e histórico de manutenção. | Os comandos `backup_db` e `restore_db` copiam/restauram SQLite e verificam `PRAGMA integrity_check`; restauração exige confirmação explícita e deve ser feita com o servidor parado. | **Comandos implementados para SQLite — realizar e registrar um teste de restauração.** Para MySQL, usar `mysqldump` e o procedimento de restauração do servidor. |
+| Leitor de QR Code/Code 128 e consulta na API | Um marcador é adulterado, trocado ou contém um identificador inexistente ou pertencente a outro ativo. | A aplicação pode exibir informações do patrimônio errado ou associar uma movimentação ao equipamento incorreto. | A API gera um identificador único no cadastro, consulta o valor recebido contra o registro central e retorna `404` quando não encontra correspondência. O endpoint de imagem gera o QR a partir do identificador guardado no banco. | 
+
+**Implementado parcialmente no código — validar no leitor mobile.** A validação da existência está implementada; a leitura e integração com app/RA precisam de teste integrado. |
+| Campos enviados à API | Um usuário envia dados malformados, campos fora do limite ou identificadores inválidos. | Erros de processamento, consulta indevida ou corrupção dos dados do ativo. | Serializers do DRF validam tipos, obrigatoriedade e limites definidos nos modelos; as consultas usam o ORM; filtros numéricos inválidos retornam erro de validação. | 
+
+**Implementado no código — executar testes com payloads inválidos.** |
+| Login e endpoints administrativos | Um usuário tenta chamar diretamente um endpoint reservado a perfil de maior privilégio. | Consulta, cadastro, alteração ou exclusão de dados sem autorização. | Login emite token aleatório com expiração de 12 horas; o banco guarda apenas o hash SHA-256 do token; as rotas verificam o cargo (`ADM`, `TEC`, `CLB`) no servidor. | 
+
+**Implementado no código — executar testes de RBAC** (RS01, RF01–RF04 e CA05). |
+| Movimentação e histórico dos ativos | Uma mudança de sala é realizada sem registro ou o histórico é alterado sem rastreabilidade. | Perda do histórico, localização incorreta e dificuldade de auditoria. | A movimentação registra usuário, data/hora, ativo, justificativa e local. A API atualiza `local_atual`, registra auditoria da mudança e mantém o endpoint de movimentações somente para consulta/criação, sem edição ou exclusão direta. | 
+
+**Implementado no código — validar a sequência de movimentações e o histórico.** |
+| Senhas, tokens, segredos e comunicação cliente-servidor | Credenciais são expostas no tráfego, nos logs ou em arquivos versionados no Git. | Comprometimento de contas e acesso indevido. | Senhas são processadas com `BCryptSHA256PasswordHasher`; tokens de API não são gravados em texto puro; logs omitem senha e token; `.env` está no `.gitignore`; a configuração permite redirecionamento HTTPS em produção. | 
+
+**Implementado na configuração/código.** A exigência de HTTPS só pode ser validada após publicar a API atrás de HTTPS. |
+| Banco de dados e cópias de segurança | Uma falha ou exclusão acidental torna os registros indisponíveis ou incorretos. | Perda de cadastros, movimentações e histórico de manutenção. | Os comandos `backup_db` e `restore_db` copiam/restauram SQLite e verificam `PRAGMA integrity_check`; restauração exige confirmação explícita e deve ser feita com o servidor parado. | 
+
+**Comandos implementados para SQLite — realizar e registrar um teste de restauração.** Para MySQL, usar `mysqldump` e o procedimento de restauração do servidor. |
 
 ## Fluxo de validação do marcador
 
 ```mermaid
 flowchart LR
-    A[Aplicativo lê QR Code / Code 128] --> B[API consulta o identificador recebido]
+    A --> Aplicativo lê QR Code --> B[API consulta o identificador recebido]
     B --> C{Ativo existe?}
     C -- Sim --> D[Retorna dados do ativo]
     D --> E[Movimentação autorizada atualiza local e histórico]

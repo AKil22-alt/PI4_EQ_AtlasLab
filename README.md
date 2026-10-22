@@ -1,4 +1,8 @@
+<<<<<<< Updated upstream
 ### PI4_EQ_AtlasLab - V2
+=======
+### PI4_EQ_AtlasLab - ETAPA 3
+>>>>>>> Stashed changes
 
 # PROJETO: Sistema de Gestão de Laboratórios e Ativos
 ### CSTADS125N4 
