@@ -3,6 +3,7 @@ from django import forms
 from django.contrib import admin, messages
 
 from .models import (
+<<<<<<< Updated upstream
     Ativo,
     DenunciaF,
     DenunciaFaz,
@@ -109,6 +110,21 @@ class MovimentacoesInline(admin.TabularInline):
     ordering = ("-data_hora",)
 
     def has_add_permission(self, request, obj=None):
+=======
+    Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA,
+    OrdemServico, SalaLab, Usuario,
+)
+
+
+@admin.register(Usuario)
+class UsuarioAdmin(admin.ModelAdmin):
+    list_display = ("id_user", "nome", "email", "cargo")
+    search_fields = ("nome", "email")
+    list_filter = ("cargo",)
+    exclude = ("senha",)
+
+    def has_add_permission(self, request):
+>>>>>>> Stashed changes
         return False
 
     def has_change_permission(self, request, obj=None):
@@ -120,6 +136,7 @@ class MovimentacoesInline(admin.TabularInline):
 
 @admin.register(Ativo)
 class AtivoAdmin(admin.ModelAdmin):
+<<<<<<< Updated upstream
     list_display = ("id_ativos", "nome", "qr_code", "situacao", "local_atual", "grupo", "sala")
     list_display_links = ("id_ativos", "nome")
     list_filter = ("status", "grupo", "sala")
@@ -200,11 +217,31 @@ class MovimentacoesAAdmin(admin.ModelAdmin):
     # Pode registrar e consultar; não pode alterar nem apagar o histórico.
     def has_change_permission(self, request, obj=None):
         return obj is None  # mantém a listagem acessível; edição de registro bloqueada
+=======
+    list_display = ("id_ativos", "nome", "qr_code", "status", "local_atual", "grupo", "sala")
+    list_filter = ("status", "grupo", "sala")
+    search_fields = ("nome", "qr_code", "local_atual", "local_origem")
+
+
+@admin.register(LogAcao)
+class LogAcaoAdmin(admin.ModelAdmin):
+    list_display = ("id", "usuario", "acao", "entidade", "entidade_id", "criado_em")
+    list_filter = ("acao", "entidade")
+    search_fields = ("entidade", "entidade_id", "usuario__email")
+    readonly_fields = ("usuario", "acao", "entidade", "entidade_id", "detalhes", "ip", "criado_em")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+>>>>>>> Stashed changes
 
     def has_delete_permission(self, request, obj=None):
         return False
 
 
+<<<<<<< Updated upstream
 # ---------------------------------------------------------------------------
 # Denúncias
 # ---------------------------------------------------------------------------
@@ -232,3 +269,6 @@ class DenunciaFazAdmin(admin.ModelAdmin):
     list_display = ("id", "denuncia", "usuario")
     autocomplete_fields = ("usuario",)
     list_select_related = ("denuncia", "usuario")
+=======
+admin.site.register([DenunciaF, GrupoA, SalaLab, OrdemServico, ManutencaoA, MovimentacoesA])
+>>>>>>> Stashed changes

@@ -1,0 +1,1125 @@
+{
+  "info": {
+    "_postman_id": "9d9b77a8-1f49-4d14-a6d6-7cf79f0bc101",
+    "name": "AtlasLab API - Coleção Thunder Client",
+    "description": "Requisições de teste da API AtlasLab. Importe esta coleção no Thunder Client usando Import > Postman Collection. Login por token, CRUD de recursos, QR Code, ordens, manutenções, movimentações e auditoria.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Saúde e autenticação",
+      "item": [
+        {
+          "name": "Health - API disponível",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health/"
+          },
+          "response": []
+        },
+        {
+          "name": "Login - obter token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@atlaslab.local\",\n  \"senha\": \"COLOQUE_SUA_SENHA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/auth/login/",
+            "description": "Use o e-mail e a senha do administrador criado por criar_admin_atlaslab."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { pm.collectionVariables.set('token', pm.response.json().token); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me - usuário autenticado",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/me/"
+          },
+          "response": []
+        },
+        {
+          "name": "Logout - revogar token atual",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/auth/logout/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Usuários (ADM)",
+      "item": [
+        {
+          "name": "Listar usuários",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/usuarios/"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar usuário técnico",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Técnico de Laboratório\",\n  \"email\": \"tecnico2@atlaslab.local\",\n  \"cargo\": \"TEC\",\n  \"senha\": \"TroqueEstaSenha123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/usuarios/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar usuário por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/usuarios/{{usuarioId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Alterar usuário por ID",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Técnico atualizado\",\n  \"cargo\": \"TEC\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/usuarios/{{usuarioId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Excluir usuário por ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/usuarios/{{usuarioId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Grupos de ativos",
+      "item": [
+        {
+          "name": "Listar grupos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/grupos/"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Equipamentos de informática\",\n  \"numero_ta\": 1,\n  \"tipo\": \"Equipamento\",\n  \"setor\": \"Tecnologia\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/grupos/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar grupo por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/grupos/{{grupoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Alterar grupo por ID",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"setor\": \"Laboratórios\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/grupos/{{grupoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Excluir grupo por ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/grupos/{{grupoId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Salas e laboratórios",
+      "item": [
+        {
+          "name": "Listar salas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/salas/"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar sala",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Laboratório 01\",\n  \"numero_ta\": 101,\n  \"localizacao\": \"Bloco A\",\n  \"descricao\": \"Laboratório de testes\",\n  \"responsavel\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/salas/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar sala por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/salas/{{salaId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Alterar sala por ID",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"localizacao\": \"Bloco B\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/salas/{{salaId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Excluir sala por ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/salas/{{salaId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Ativos, QR Code e histórico",
+      "item": [
+        {
+          "name": "Listar ativos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/"
+          },
+          "response": []
+        },
+        {
+          "name": "Pesquisar ativos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/?search=notebook"
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar ativos ativos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/?status=ativo"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar ativo (QR gerado automaticamente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Notebook Dell\",\n  \"status\": true,\n  \"local_origem\": \"Laboratório 01\",\n  \"local_atual\": \"Laboratório 01\",\n  \"descricao\": \"Notebook de teste\",\n  \"grupo\": 1,\n  \"sala\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/ativos/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar ativo por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Editar ativo por ID",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descricao\": \"Notebook em uso no laboratório\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Localizar ativo pelo QR Code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/por-qr/?codigo={{qrCode}}",
+            "description": "Copie o valor qr_code retornado ao criar/listar o ativo para a variável qrCode."
+          },
+          "response": []
+        },
+        {
+          "name": "Baixar imagem PNG do QR Code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/qr-code-imagem/",
+            "description": "A resposta é uma imagem PNG, não JSON."
+          },
+          "response": []
+        },
+        {
+          "name": "Movimentar ativo e atualizar localização",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"local_m\": \"Laboratório 02\",\n  \"justificativa\": \"Transferência para manutenção\",\n  \"sala_id\": 2,\n  \"contagem_mov_a\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/movimentar/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar histórico do ativo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/historico/"
+          },
+          "response": []
+        },
+        {
+          "name": "Inativar ativo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/inativar/"
+          },
+          "response": []
+        },
+        {
+          "name": "Reativar ativo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/{{ativoId}}/ativar/"
+          },
+          "response": []
+        },
+        {
+          "name": "Listar ativos inativos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ativos/?status=inativo"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 - Ordens de serviço",
+      "item": [
+        {
+          "name": "Listar ordens",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ordens-servico/"
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar ordens abertas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ordens-servico/?status=ABERTA"
+          },
+          "response": []
+        },
+        {
+          "name": "Abrir OS com vínculos do diagrama",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"Verificar notebook\",\n  \"descricao\": \"Equipamento não inicia\",\n  \"status\": \"ABERTA\",\n  \"usuario_ids\": [\n    2\n  ],\n  \"sala_ids\": [\n    1\n  ],\n  \"ativo_ids\": [\n    1\n  ],\n  \"manutencao_ids\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/ordens-servico/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar OS por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ordens-servico/{{ordemId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Atualizar status da OS",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"EM_ANDAMENTO\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/ordens-servico/{{ordemId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Excluir OS por ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ordens-servico/{{ordemId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 - Manutenções",
+      "item": [
+        {
+          "name": "Listar manutenções",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/manutencoes/"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar manutenção",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"Preventiva\",\n  \"descricao\": \"Inspeção periódica\",\n  \"data_hora_prev\": \"2026-10-15T10:00:00-03:00\",\n  \"prioridade\": \"Média\",\n  \"gravidade\": \"Baixa\",\n  \"numero_tag\": \"TAG-001\",\n  \"ultima_manutencao\": \"2026-09-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/manutencoes/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar manutenção por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/manutencoes/{{manutencaoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Editar manutenção por ID",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prioridade\": \"Alta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/manutencoes/{{manutencaoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Excluir manutenção por ID",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/manutencoes/{{manutencaoId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 - Movimentações",
+      "item": [
+        {
+          "name": "Listar movimentações",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/movimentacoes/"
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar movimentações por ativo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/movimentacoes/?ativo={{ativoId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "Registrar movimentação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"justificativa\": \"Mudança de local\",\n  \"local_m\": \"Laboratório 02\",\n  \"ativo\": 1,\n  \"contagem_mov_a\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/movimentacoes/"
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar movimentação por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/movimentacoes/{{movimentacaoId}}/"
+          },
+          "response": []
+        },
+        {
+          "name": "Filtrar ordens pelo ativo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/ordens-servico/?ativo={{ativoId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "09 - Denúncias",
+      "item": [
+        {
+          "name": "Listar denúncias",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/denuncias/"
+          },
+          "response": []
+        },
+        {
+          "name": "Criar denúncia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descricao\": \"Etiqueta de patrimônio ilegível\",\n  \"classificacao\": \"Patrimônio\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/denuncias/",
+            "description": "O usuário autenticado é associado automaticamente à denúncia."
+          },
+          "response": []
+        },
+        {
+          "name": "Consultar denúncia por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/denuncias/{{denunciaId}}/"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 - Auditoria (ADM)",
+      "item": [
+        {
+          "name": "Listar logs de auditoria",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Token {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/logs/"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000/api",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "usuarioId",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "grupoId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "salaId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "ativoId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "qrCode",
+      "value": "ATLASLAB-COLE-O-CODIGO-AQUI",
+      "type": "string"
+    },
+    {
+      "key": "ordemId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "manutencaoId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "movimentacaoId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "denunciaId",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}
