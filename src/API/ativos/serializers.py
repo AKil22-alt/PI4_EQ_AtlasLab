@@ -84,13 +84,8 @@ class DenunciaFSerializer(serializers.ModelSerializer):
 
 
 class AtivoSerializer(serializers.ModelSerializer):
-<<<<<<< Updated upstream
-    grupo_detalhes = GrupoASerializer(source='grupo', read_only=True)
-    sala_detalhes = SalaLabSerializer(source='sala', read_only=True)
-=======
     grupo_detalhes = GrupoASerializer(source="grupo", read_only=True)
     sala_detalhes = SalaLabSerializer(source="sala", read_only=True)
->>>>>>> Stashed changes
 
     class Meta:
         model = Ativo

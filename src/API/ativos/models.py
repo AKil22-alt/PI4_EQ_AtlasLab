@@ -1,7 +1,6 @@
 import secrets
 import uuid
 
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -76,13 +75,6 @@ class DenunciaF(models.Model):
     def __str__(self):
         return f"Denúncia {self.id_denuncia}"
 
-<<<<<<< Updated upstream
-# Relacionamento Denuncias_F (1,n) e Usuarios (0,1) (ALTERAR)
-class DenunciaFaz(models.Model):
-    denuncia = models.ForeignKey(DenunciaF, on_delete=models.CASCADE)
-    usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True)
-=======
->>>>>>> Stashed changes
 
 class Ativo(models.Model):
     id_ativos = models.AutoField(primary_key=True)
@@ -131,11 +123,7 @@ class OrdemServico(models.Model):
     def __str__(self):
         return f"OS {self.id_ordem} - {self.titulo}"
 
-<<<<<<< Updated upstream
-# 7. Manutencao_A
-=======
 
->>>>>>> Stashed changes
 class ManutencaoA(models.Model):
     id_man = models.AutoField(primary_key=True)
     tipo = models.CharField(max_length=50)
@@ -151,9 +139,6 @@ class ManutencaoA(models.Model):
     def __str__(self):
         return f"Manutenção {self.id_man} - {self.tipo}"
 
-<<<<<<< Updated upstream
-# 8. Movimentacoes_A
-=======
 
 class OSUser(models.Model):
     id = models.AutoField(primary_key=True)
@@ -203,7 +188,6 @@ class OSManutencao(models.Model):
         verbose_name_plural = "Vínculos OS/manutenção"
 
 
->>>>>>> Stashed changes
 class MovimentacoesA(models.Model):
     id_mov = models.AutoField(primary_key=True)
     justificativa = models.TextField()
