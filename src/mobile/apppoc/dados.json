@@ -1,0 +1,18 @@
+[{
+    "patrimonio": "1236654",
+    "nome": "Monitor Dell 24",
+    "origem": "B-101",
+    "localAtual": "B-111",
+    "responsavel": "Thainara",
+    "status": "Ativo",
+    "manutencao": "10/09/2026"
+},
+{
+    "patrimonio": "1359867",
+    "nome": "Workstation Corporativo Dell",
+    "origem": "B-102",
+    "localAtual": "B-101",
+    "responsavel": "Guilherme",
+    "status": "Ativo",
+    "manutencao": "25/09/2026"
+}]
