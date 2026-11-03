@@ -1,15 +1,15 @@
 # Requisições para o Thunder Client
 
-A coleção importável está em `thunder-client/AtlasLab.postman_collection.json` (formato Postman Collection v2.1, importável pelo Thunder Client).
+A coleção importável está em `AtlasLab_ThunderClient.postman_collection.json` (formato Postman Collection v2.1, importável pelo Thunder Client).
 
 ## Como importar e usar
 
 1. Inicie a API: `python manage.py runserver`.
 2. No VS Code, abra a extensão Thunder Client e use **Import** → **Postman Collection**.
-3. Selecione `thunder-client/AtlasLab.postman_collection.json`.
+3. Selecione `AtlasLab_ThunderClient.postman_collection.json`.
 4. A coleção já vem com `baseUrl=http://127.0.0.1:8000/api` e as variáveis de IDs.
 5. Execute **Health - API disponível**.
-6. Edite **Login - obter token** e substitua o exemplo de e-mail/senha pelos dados configurados pelo comando `python manage.py criar_admin_atlaslab`.
+6. Para o administrador local criado nesta validação, use `admin@atlaslab.local` e `Teste123!`. A coleção já contém esses dados; em outro ambiente, substitua-os pelos dados configurados pelo comando `python manage.py criar_admin_atlaslab`.
 7. Execute o login. Se a importação não preencher a variável `token` automaticamente, copie o campo `token` da resposta e cole na variável da coleção `token`.
 8. Execute as requisições protegidas. IDs como `grupoId`, `salaId` e `ativoId` devem corresponder aos registros existentes no banco. Atualize `qrCode` com o valor retornado quando criar um ativo.
 
