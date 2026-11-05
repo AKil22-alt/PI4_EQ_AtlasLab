@@ -476,7 +476,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"nome\": \"Notebook Dell\",\n  \"status\": true,\n  \"local_origem\": \"Laboratório 01\",\n  \"local_atual\": \"Laboratório 01\",\n  \"descricao\": \"Notebook de teste\",\n  \"grupo\": 1,\n  \"sala\": 1\n}",
+              "raw": "{\n  \"nome\": \"Notebook Dell\",\n  \"status\": true,\n  \"local_origem\": 1,\n  \"local_atual\": 1,\n  \"descricao\": \"Notebook de teste\",\n  \"grupo\": 1\n}",
               "options": {
                 "raw": {
                   "language": "json"

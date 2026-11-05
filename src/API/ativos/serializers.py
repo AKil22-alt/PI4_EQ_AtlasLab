@@ -123,14 +123,15 @@ class DenunciaFSerializer(serializers.ModelSerializer):
 
 class AtivoSerializer(serializers.ModelSerializer):
     grupo_detalhes = GrupoASerializer(source="grupo", read_only=True)
-    sala_detalhes = SalaLabSerializer(source="sala", read_only=True)
+    local_origem_detalhes = SalaLabSerializer(source="local_origem", read_only=True)
+    local_atual_detalhes = SalaLabSerializer(source="local_atual", read_only=True)
 
     class Meta:
         model = Ativo
         fields = [
-            "id_ativos", "nome", "qr_code", "status", "local_origem", "local_atual",
-            "descricao", "grupo", "grupo_detalhes", "sala", "sala_detalhes",
-            "criado_em", "atualizado_em",
+            "id_ativos", "nome", "qr_code", "status", "local_origem",
+            "local_origem_detalhes", "local_atual", "local_atual_detalhes",
+            "descricao", "grupo", "grupo_detalhes", "criado_em", "atualizado_em",
         ]
         read_only_fields = ["id_ativos", "qr_code", "criado_em", "atualizado_em"]
 

@@ -106,13 +106,14 @@ O `qr_code` é gerado automaticamente e é único. Não envie senha, token ou da
 {
   "nome": "Notebook Dell",
   "status": true,
-  "local_origem": "Laboratório 01",
-  "local_atual": "Laboratório 01",
+  "local_origem": 1,
+  "local_atual": 1,
   "descricao": "Notebook para testes",
-  "grupo": 1,
-  "sala": 1
+  "grupo": 1
 }
 ```
+
+`local_origem` e `local_atual` recebem IDs de `/salas/`; a resposta inclui `local_origem_detalhes` e `local_atual_detalhes` com os dados das salas relacionadas.
 
 ### Abrir ordem de serviço com vínculos do diagrama
 
@@ -134,14 +135,14 @@ As listas de IDs preenchem as relações `OS_User`, `OS_Salas/Labs`, `OS_Ativo` 
 
 ```json
 {
-  "local_m": "Laboratório 02",
+  "local_m": "B-102",
   "justificativa": "Transferência para manutenção",
   "sala_id": 2,
   "contagem_mov_a": 1
 }
 ```
 
-Envie o corpo para `/api/ativos/1/movimentar/`. A API registra o usuário responsável, atualiza `local_atual` e grava auditoria.
+Envie o corpo para `/api/ativos/1/movimentar/`. `sala_id` deve identificar uma sala cadastrada; a API atualiza a FK `local_atual`, registra o usuário responsável e grava auditoria.
 
 ## 6. Testes
 

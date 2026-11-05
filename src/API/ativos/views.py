@@ -243,10 +243,14 @@ class AtivoViewSet(AuditedModelViewSet):
     roles_create = TECNICO
     roles_write = TECNICO
     entity_name = "Ativo"
-    search_fields = ["nome", "qr_code", "local_atual", "local_origem", "descricao"]
+    search_fields = [
+        "nome", "qr_code", "local_atual__localizacao", "local_origem__localizacao", "descricao"
+    ]
 
     def get_queryset(self):
-        queryset = Ativo.objects.select_related("grupo", "sala").all().order_by("id_ativos")
+        queryset = Ativo.objects.select_related(
+            "grupo", "local_origem", "local_atual"
+        ).all().order_by("id_ativos")
         status_param = self.request.query_params.get("status")
         if status_param is not None:
             normalized_status = status_param.strip().lower()
@@ -261,9 +265,12 @@ class AtivoViewSet(AuditedModelViewSet):
         grupo_id = self.request.query_params.get("grupo")
         if grupo_id:
             queryset = queryset.filter(grupo_id=grupo_id)
-        sala_id = self.request.query_params.get("sala")
+        sala_id = self.request.query_params.get("sala") or self.request.query_params.get("local_atual")
         if sala_id:
-            queryset = queryset.filter(sala_id=sala_id)
+            queryset = queryset.filter(local_atual_id=sala_id)
+        local_origem_id = self.request.query_params.get("local_origem")
+        if local_origem_id:
+            queryset = queryset.filter(local_origem_id=local_origem_id)
         return queryset
 
     def get_permissions(self):
@@ -308,26 +315,28 @@ class AtivoViewSet(AuditedModelViewSet):
         sala = None
         if sala_id:
             sala = get_object_or_404(SalaLab, pk=sala_id)
+        else:
+            local = data.get("local_m", "").strip()
+            salas = SalaLab.objects.filter(localizacao=local)
+            if salas.count() != 1:
+                raise ValidationError({"sala_id": "Informe um laboratório cadastrado como destino."})
+            sala = salas.first()
 
+        data["local_m"] = sala.localizacao
         data["ativo"] = ativo.pk
         serializer = MovimentacoesASerializer(data=data)
         serializer.is_valid(raise_exception=True)
-        destino = serializer.validated_data["local_m"]
-        local_anterior = ativo.local_atual
+        local_anterior = ativo.local_atual.localizacao
         with transaction.atomic():
             movimentacao = serializer.save(usuario=request.user, ativo=ativo)
-            ativo.local_atual = destino
-            update_fields = ["local_atual", "atualizado_em"]
-            if sala is not None:
-                ativo.sala = sala
-                update_fields.append("sala")
-            ativo.save(update_fields=update_fields)
+            ativo.local_atual = sala
+            ativo.save(update_fields=["local_atual", "atualizado_em"])
             registrar_acao(
                 request,
                 "MOVIMENTAR",
                 "Ativo",
                 ativo.pk,
-                {"local_anterior": local_anterior, "local_atual": destino},
+                {"local_anterior": local_anterior, "local_atual": sala.localizacao},
             )
 
         return Response(
@@ -442,17 +451,23 @@ class MovimentacoesAViewSet(AuditedModelViewSet):
 
     def perform_create(self, serializer):
         with transaction.atomic():
+            local = serializer.validated_data["local_m"].strip()
+            salas = SalaLab.objects.filter(localizacao=local)
+            if salas.count() != 1:
+                raise ValidationError({"local_m": "O destino deve corresponder a um laboratório cadastrado."})
+            sala = salas.first()
+            serializer.validated_data["local_m"] = sala.localizacao
             movimentacao = serializer.save(usuario=self.request.user)
             ativo = movimentacao.ativo
-            local_anterior = ativo.local_atual
-            ativo.local_atual = movimentacao.local_m
+            local_anterior = ativo.local_atual.localizacao
+            ativo.local_atual = sala
             ativo.save(update_fields=["local_atual", "atualizado_em"])
             registrar_acao(
                 self.request,
                 "MOVIMENTAR",
                 "Ativo",
                 ativo.pk,
-                {"local_anterior": local_anterior, "local_atual": ativo.local_atual},
+                {"local_anterior": local_anterior, "local_atual": ativo.local_atual.localizacao},
             )
 
 

@@ -95,13 +95,14 @@ class Ativo(models.Model):
     # Identificador único que pode ser codificado como QR Code no app.
     qr_code = models.CharField(max_length=150, unique=True, blank=True)
     status = models.BooleanField(default=True)
-    local_origem = models.CharField(max_length=100)
-    local_atual = models.CharField(max_length=100)
+    local_origem = models.ForeignKey(
+        SalaLab, on_delete=models.PROTECT, related_name="ativos_origem"
+    )
+    local_atual = models.ForeignKey(
+        SalaLab, on_delete=models.PROTECT, related_name="ativos_atuais"
+    )
     descricao = models.TextField(blank=True, null=True)
     grupo = models.ForeignKey(GrupoA, on_delete=models.PROTECT, related_name="ativos")
-    sala = models.ForeignKey(
-        SalaLab, on_delete=models.SET_NULL, null=True, blank=True, related_name="ativos"
-    )
     criado_em = models.DateTimeField(default=timezone.now, editable=False)
     atualizado_em = models.DateTimeField(auto_now=True)
 

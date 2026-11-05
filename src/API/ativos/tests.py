@@ -32,10 +32,15 @@ class ApiViewsTests(TestCase):
             tipo="Equipamento",
             setor="Tecnologia",
         )
+        self.sala = SalaLab.objects.create(
+            nome="Laboratório 1",
+            numero_ta=1,
+            localizacao="Laboratório 1",
+        )
         self.ativo = Ativo.objects.create(
             nome="Notebook de testes",
-            local_origem="Laboratório 1",
-            local_atual="Laboratório 1",
+            local_origem=self.sala,
+            local_atual=self.sala,
             grupo=self.grupo,
         )
 
@@ -157,10 +162,16 @@ class ApiViewsTests(TestCase):
 
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)
+        sala_destino = SalaLab.objects.create(
+            nome="Laboratório 2",
+            numero_ta=2,
+            localizacao="B-102",
+        )
         response = client.post(
             f"/api/ativos/{self.ativo.pk}/movimentar/",
             {
-                "local_m": "Laboratório 2",
+                "local_m": sala_destino.localizacao,
+                "sala_id": sala_destino.pk,
                 "justificativa": "Transferência para testes",
             },
             format="json",
@@ -168,7 +179,8 @@ class ApiViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.ativo.refresh_from_db()
-        self.assertEqual(self.ativo.local_atual, "Laboratório 2")
+        self.assertEqual(self.ativo.local_atual, sala_destino)
+        self.assertEqual(self.ativo.local_atual_id, sala_destino.pk)
         self.assertEqual(MovimentacoesA.objects.filter(ativo=self.ativo).count(), 1)
         log = LogAcao.objects.get(entidade="Ativo", entidade_id=str(self.ativo.pk))
         self.assertEqual(log.acao, "MOVIMENTAR")
@@ -185,10 +197,9 @@ class ApiViewsTests(TestCase):
             "/api/ativos/",
             {
                 "nome": "Projetor de testes",
-                "local_origem": "Almoxarifado",
-                "local_atual": "Laboratório B-101",
+                "local_origem": sala.pk,
+                "local_atual": sala.pk,
                 "grupo": self.grupo.pk,
-                "sala": sala.pk,
                 "descricao": "Projetor para testes da API.",
                 "status": True,
             },
@@ -200,8 +211,15 @@ class ApiViewsTests(TestCase):
         self.assertTrue(created.data["qr_code"].startswith("ATLASLAB-"))
         self.assertEqual(created.data["grupo"], self.grupo.pk)
         self.assertEqual(created.data["grupo_detalhes"]["nome"], self.grupo.nome)
-        self.assertEqual(created.data["sala"], sala.pk)
-        self.assertEqual(created.data["local_origem"], "Almoxarifado")
+        self.assertEqual(created.data["local_origem"], sala.pk)
+        self.assertEqual(created.data["local_origem_detalhes"]["localizacao"], sala.localizacao)
+        self.assertEqual(created.data["local_atual"], sala.pk)
+
+        sala_destino = SalaLab.objects.create(
+            nome="Laboratório B-102",
+            numero_ta=102,
+            localizacao="B-102",
+        )
 
         listed = client.get("/api/ativos/")
         self.assertEqual(listed.status_code, 200)
@@ -209,11 +227,12 @@ class ApiViewsTests(TestCase):
 
         updated = client.patch(
             f"/api/ativos/{created.data['id_ativos']}/",
-            {"local_atual": "Laboratório B-102", "status": False},
+            {"local_atual": sala_destino.pk, "status": False},
             format="json",
         )
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.data["local_atual"], "Laboratório B-102")
+        self.assertEqual(updated.data["local_atual"], sala_destino.pk)
+        self.assertEqual(updated.data["local_atual_detalhes"]["localizacao"], sala_destino.localizacao)
         self.assertFalse(updated.data["status"])
 
         deleted = client.delete(f"/api/ativos/{created.data['id_ativos']}/")
@@ -240,7 +259,10 @@ class ApiViewsTests(TestCase):
 
         listed = client.get("/api/salas/")
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual(listed.data["results"][0]["id_sala"], created.data["id_sala"])
+        self.assertIn(
+            created.data["id_sala"],
+            {sala["id_sala"] for sala in listed.data["results"]},
+        )
 
         updated = client.patch(
             f"/api/salas/{created.data['id_sala']}/",

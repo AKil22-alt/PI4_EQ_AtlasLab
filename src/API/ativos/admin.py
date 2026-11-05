@@ -96,12 +96,16 @@ class MovimentacoesInline(admin.TabularInline):
 
 @admin.register(Ativo)
 class AtivoAdmin(admin.ModelAdmin):
-    list_display = ("id_ativos", "nome", "qr_code", "status", "local_atual", "grupo", "sala")
+    list_display = (
+        "id_ativos", "nome", "qr_code", "status", "local_origem", "local_atual", "grupo"
+    )
     list_display_links = ("id_ativos", "nome")
-    list_filter = ("status", "grupo", "sala")
-    search_fields = ("nome", "qr_code", "local_atual", "local_origem")
-    list_select_related = ("grupo", "sala")
-    autocomplete_fields = ("grupo", "sala")
+    list_filter = ("status", "grupo", "local_atual")
+    search_fields = (
+        "nome", "qr_code", "local_atual__localizacao", "local_origem__localizacao"
+    )
+    list_select_related = ("grupo", "local_origem", "local_atual")
+    autocomplete_fields = ("grupo", "local_origem", "local_atual")
     ordering = ("nome",)
     inlines = (MovimentacoesInline,)
     actions = ("inativar_ativos", "reativar_ativos")

@@ -47,13 +47,17 @@ function mapLaboratory(laboratory) {
 }
 
 function mapAsset(asset) {
+  const originLab = labs.find((lab) => lab.id === asset.local_origem)
+  const currentLab = labs.find((lab) => lab.id === asset.local_atual)
+
   return {
     id: asset.id_ativos,
     patrimony: asset.qr_code || '',
     name: asset.nome,
-    origin: asset.local_origem,
-    current: asset.local_atual,
-    roomId: asset.sala,
+    origin: asset.local_origem_detalhes?.localizacao || originLab?.acronym || 'Não informado',
+    current: asset.local_atual_detalhes?.localizacao || currentLab?.acronym || 'Não informado',
+    originLabId: asset.local_origem,
+    currentLabId: asset.local_atual,
     groupId: asset.grupo,
     category: asset.grupo_detalhes?.nome || 'Não informado',
     status: asset.status ? 'Ativo' : 'Inativo',
@@ -146,9 +150,8 @@ const labForm = reactive({
 const assetForm = reactive({
   qrCode: '',
   name: '',
-  origin: '',
-  current: '',
-  room: '',
+  originLab: '',
+  currentLab: '',
   group: '',
   status: 'Ativo',
   description: ''
@@ -162,7 +165,7 @@ const groupForm = reactive({
 })
 
 const movementForm = reactive({
-  local: '',
+  labId: '',
   justification: ''
 })
 
@@ -212,9 +215,8 @@ function clearAssetFilters() {
 function resetAssetForm() {
   assetForm.qrCode = ''
   assetForm.name = ''
-  assetForm.origin = ''
-  assetForm.current = ''
-  assetForm.room = ''
+  assetForm.originLab = ''
+  assetForm.currentLab = ''
   assetForm.group = ''
   assetForm.status = 'Ativo'
   assetForm.description = ''
@@ -366,9 +368,12 @@ function openAssetForm(asset = null) {
   editingAssetId.value = asset?.id ?? null
   assetForm.qrCode = asset?.patrimony ?? ''
   assetForm.name = asset?.name ?? ''
-  assetForm.origin = asset?.origin ?? ''
-  assetForm.current = asset?.current ?? ''
-  assetForm.room = asset?.roomId ?? ''
+  assetForm.originLab = asset?.originLabId
+    ?? labs.find((lab) => lab.acronym === asset?.origin)?.id
+    ?? ''
+  assetForm.currentLab = asset?.currentLabId
+    ?? labs.find((lab) => lab.acronym === asset?.current)?.id
+    ?? ''
   assetForm.group = asset?.groupId ?? ''
   assetForm.status = asset?.status ?? 'Ativo'
   assetForm.description = asset?.description ?? ''
@@ -376,7 +381,9 @@ function openAssetForm(asset = null) {
 }
 
 async function createAsset() {
-  if (!assetForm.name.trim() || !assetForm.origin.trim() || !assetForm.current.trim() || !assetForm.group) {
+  const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
+  const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
+  if (!assetForm.name.trim() || !originLab || !currentLab || !assetForm.group) {
     return
   }
 
@@ -388,10 +395,9 @@ async function createAsset() {
   try {
     const payload = {
       nome: assetForm.name.trim(),
-      local_origem: assetForm.origin.trim(),
-      local_atual: assetForm.current.trim(),
+      local_origem: originLab.id,
+      local_atual: currentLab.id,
       grupo: Number(assetForm.group),
-      sala: assetForm.room ? Number(assetForm.room) : null,
       descricao: assetForm.description.trim(),
       status: assetForm.status === 'Ativo'
     }
@@ -409,14 +415,16 @@ async function createAsset() {
 async function saveAsset() {
   const asset = rows.find((row) => row.id === editingAssetId.value)
   if (!asset) return
+  const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
+  const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
+  if (!originLab || !currentLab || !assetForm.group) return
 
   try {
     const updatedAsset = await updateAssetRequest(asset.id, {
       nome: assetForm.name.trim(),
-      local_origem: assetForm.origin.trim(),
-      local_atual: assetForm.current.trim(),
+      local_origem: originLab.id,
+      local_atual: currentLab.id,
       grupo: Number(assetForm.group),
-      sala: assetForm.room ? Number(assetForm.room) : null,
       descricao: assetForm.description.trim(),
       status: assetForm.status === 'Ativo'
     })
@@ -433,24 +441,32 @@ async function saveAsset() {
 function openMovementForm(asset) {
   selectedAsset.value = asset
   showDetailsModal.value = false
-  movementForm.local = asset.current
+  movementForm.labId = asset.currentLabId ?? asset.roomId ?? ''
   movementForm.justification = ''
   showMovementModal.value = true
 }
 
 async function submitMovement() {
-  if (!selectedAsset.value || !movementForm.local.trim() || !movementForm.justification.trim()) return
+  const lab = labs.find((item) => String(item.id) === String(movementForm.labId))
+  if (!selectedAsset.value || !lab || !movementForm.justification.trim()) return
 
   try {
     await moveAssetRequest(selectedAsset.value.id, {
-      local_m: movementForm.local.trim(),
+      local_m: lab.acronym,
+      sala_id: lab.id,
       justificativa: movementForm.justification.trim()
     })
 
-    const updatedLocation = movementForm.local.trim()
+    const updatedLocation = lab.acronym
     selectedAsset.value.current = updatedLocation
+    selectedAsset.value.currentLabId = lab.id
+    selectedAsset.value.roomId = lab.id
     const asset = rows.find((row) => row.id === selectedAsset.value.id)
-    if (asset) asset.current = updatedLocation
+    if (asset) {
+      asset.current = updatedLocation
+      asset.currentLabId = lab.id
+      asset.roomId = lab.id
+    }
     showMovementModal.value = false
   } catch (error) {
     console.error('Erro ao movimentar ativo:', error)
@@ -677,16 +693,26 @@ function handleRowAction({ action, row }) {
                 <label for="asset-origin" class="text-sm font-medium text-text-primary">
                   Local de Origem <span class="text-red-primary">*</span>
                 </label>
-                <input id="asset-origin" v-model="assetForm.origin" type="text" placeholder="Ex.: Almoxarifado" required
-                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+                <select id="asset-origin" v-model.number="assetForm.originLab" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option disabled value="">Selecione um laboratório</option>
+                  <option v-for="lab in labs" :key="`origin-${lab.id}`" :value="lab.id">
+                    {{ lab.title }} - {{ lab.acronym }}
+                  </option>
+                </select>
               </div>
 
               <div class="space-y-2">
                 <label for="asset-current" class="text-sm font-medium text-text-primary">
                   Local Atual <span class="text-red-primary">*</span>
                 </label>
-                <input id="asset-current" v-model="assetForm.current" type="text" placeholder="Ex.: Laboratório B-101" required
-                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+                <select id="asset-current" v-model.number="assetForm.currentLab" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option disabled value="">Selecione um laboratório</option>
+                  <option v-for="lab in labs" :key="`current-${lab.id}`" :value="lab.id">
+                    {{ lab.title }} - {{ lab.acronym }}
+                  </option>
+                </select>
               </div>
             </div>
 
@@ -699,17 +725,6 @@ function handleRowAction({ action, row }) {
                 <option value="">Selecione</option>
                 <option v-for="group in groups" :key="group.id_grupo_a" :value="group.id_grupo_a">
                   {{ group.nome }}
-                </option>
-              </select>
-            </div>
-
-            <div class="space-y-2">
-              <label for="asset-room" class="text-sm font-medium text-text-primary">Sala vinculada</label>
-              <select id="asset-room" v-model="assetForm.room"
-                class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-                <option value="">Sem sala vinculada</option>
-                <option v-for="lab in labs" :key="`asset-room-${lab.id}`" :value="lab.id">
-                  {{ lab.acronym }} - {{ lab.title }}
                 </option>
               </select>
             </div>
@@ -921,8 +936,13 @@ function handleRowAction({ action, row }) {
             <label for="movement-location" class="text-sm font-medium text-text-primary">
               Novo local <span class="text-red-primary">*</span>
             </label>
-            <input id="movement-location" v-model="movementForm.local" type="text" required
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+            <select id="movement-location" v-model.number="movementForm.labId" required
+              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+              <option disabled value="">Selecione um laboratório</option>
+              <option v-for="lab in labs" :key="`movement-${lab.id}`" :value="lab.id">
+                {{ lab.title }} - {{ lab.acronym }}
+              </option>
+            </select>
           </div>
           <div class="space-y-2">
             <label for="movement-justification" class="text-sm font-medium text-text-primary">
