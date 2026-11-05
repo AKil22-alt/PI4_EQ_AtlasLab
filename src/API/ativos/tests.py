@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from .models import (
     ApiToken, Ativo, Cargo, GrupoA, LogAcao, MovimentacoesA,
-    OrdemServico, SolicitacaoCadastro, Usuario,
+    OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
 
@@ -173,3 +173,56 @@ class ApiViewsTests(TestCase):
         log = LogAcao.objects.get(entidade="Ativo", entidade_id=str(self.ativo.pk))
         self.assertEqual(log.acao, "MOVIMENTAR")
         self.assertEqual(log.detalhes["local_anterior"], "Laboratório 1")
+
+    def test_laboratory_crud_uses_paginated_salas_contract(self):
+        client = self.authenticate(self.admin)
+        created = client.post(
+            "/api/salas/",
+            {
+                "nome": "Laboratório de testes",
+                "numero_ta": 101,
+                "localizacao": "B-101",
+                "responsavel": self.admin.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertIn("id_sala", created.data)
+        self.assertEqual(created.data["numero_ta"], 101)
+        self.assertEqual(created.data["responsavel"], self.admin.pk)
+        self.assertEqual(created.data["responsavel_detalhes"]["nome"], self.admin.nome)
+
+        listed = client.get("/api/salas/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data["results"][0]["id_sala"], created.data["id_sala"])
+
+        updated = client.patch(
+            f"/api/salas/{created.data['id_sala']}/",
+            {"nome": "Laboratório atualizado", "numero_ta": 102},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["nome"], "Laboratório atualizado")
+        self.assertEqual(updated.data["numero_ta"], 102)
+
+        deleted = client.delete(f"/api/salas/{created.data['id_sala']}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(SalaLab.objects.filter(pk=created.data["id_sala"]).exists())
+
+    def test_sala_responsible_options_are_available_to_admin_and_technician_only(self):
+        technician = Usuario.objects.create(
+            nome="Técnico Atlas",
+            email="tecnico@example.com",
+            cargo=Cargo.TECNICO,
+            senha=make_password("senha-segura-123"),
+        )
+
+        response = self.authenticate(technician).get("/api/usuarios/responsaveis/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({user["id_user"] for user in response.data}, {self.admin.pk, self.colaborador.pk, technician.pk})
+        self.assertNotIn("email", response.data[0])
+        self.assertEqual(
+            self.authenticate(self.colaborador).get("/api/usuarios/responsaveis/").status_code,
+            403,
+        )

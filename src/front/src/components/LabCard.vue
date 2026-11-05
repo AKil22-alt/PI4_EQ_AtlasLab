@@ -14,6 +14,10 @@ const props = defineProps({
     responsible: {
         type: String,
         required: true
+    },
+    canManage: {
+        type: Boolean,
+        default: false
     }
 });
 
@@ -33,12 +37,12 @@ const emit = defineEmits(['view-assets', 'view-details', 'edit', 'delete']);
                     @click="emit('view-details')">
                     <Eye :size="16" />
                 </button>
-                <button type="button" aria-label="Editar laboratório" title="Editar laboratório"
+                <button v-if="props.canManage" type="button" aria-label="Editar laboratório" title="Editar laboratório"
                     class="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-1 shadow-sm ring-1 ring-gray-200 transition hover:bg-red-2"
                     @click="emit('edit')">
                     <Pencil :size="16" />
                 </button>
-                <button type="button" aria-label="Excluir laboratório" title="Excluir laboratório"
+                <button v-if="props.canManage" type="button" aria-label="Excluir laboratório" title="Excluir laboratório"
                     class="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-1 shadow-sm ring-1 ring-gray-200 transition hover:bg-red-2"
                     @click="emit('delete')">
                     <Trash2 :size="16" />

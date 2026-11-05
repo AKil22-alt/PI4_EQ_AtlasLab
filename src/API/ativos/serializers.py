@@ -14,6 +14,13 @@ class UsuarioResumoSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ResponsavelSalaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Usuario
+        fields = ["id_user", "nome", "cargo"]
+        read_only_fields = fields
+
+
 class UsuarioSerializer(serializers.ModelSerializer):
     senha = serializers.CharField(write_only=True, min_length=8, required=True, trim_whitespace=False)
     salas_responsaveis = serializers.PrimaryKeyRelatedField(many=True, read_only=True)

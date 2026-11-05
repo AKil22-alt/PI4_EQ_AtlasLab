@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import {
   createLaboratoryRequest,
   listLaboratoriesRequest,
+  listLaboratoryResponsiblesRequest,
   updateLaboratoryRequest,
   deleteLaboratoryRequest,
   listAssetsRequest,
@@ -19,13 +20,28 @@ import Searchbar from '../components/Searchbar.vue';
 import { AlertTriangle, ArrowRightLeft, Pencil, Plus } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import { useAuthStore } from '../store/auth'
 
+const authStore = useAuthStore()
 const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
 
 const labs = reactive([])
 const categories = reactive([])
+const laboratoryResponsibles = reactive([])
+const canManageLabs = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
+
+function mapLaboratory(laboratory) {
+  return {
+    id: laboratory.id_sala,
+    acronym: laboratory.localizacao,
+    title: laboratory.nome,
+    responsible: laboratory.responsavel_detalhes?.nome || 'Não informado',
+    responsibleId: laboratory.responsavel,
+    numeroTa: laboratory.numero_ta
+  }
+}
 
 function mapAsset(asset) {
   const origin = asset.laboratorio_origem_detalhes || asset.laboratorio_detalhes
@@ -48,22 +64,34 @@ function mapAsset(asset) {
 
 onMounted(async () => {
   try {
-    const laboratories = await listLaboratoriesRequest()
-    const mappedLaboratories = laboratories.map(({ id, nome, localizacao, responsavel }) => ({
-      id,
-      acronym: localizacao,
-      title: nome,
-      responsible: responsavel || 'Não informado'
-    }))
-    labs.push(...mappedLaboratories)
-
-    const assets = await listAssetsRequest()
-    rows.push(...assets.map(mapAsset))
-
-    const categoryList = await listCategoriesRequest()
-    categories.push(...categoryList)
+    const response = await listLaboratoriesRequest()
+    const laboratories = Array.isArray(response) ? response : response.results
+    labs.push(...laboratories.map(mapLaboratory))
   } catch (error) {
     console.error('Erro ao carregar laboratórios:', error)
+  }
+
+  if (canManageLabs.value) {
+    try {
+      const responsibles = await listLaboratoryResponsiblesRequest()
+      laboratoryResponsibles.push(...responsibles)
+    } catch (error) {
+      console.error('Erro ao carregar responsáveis dos laboratórios:', error)
+    }
+  }
+
+  try {
+    const assets = await listAssetsRequest()
+    rows.push(...(Array.isArray(assets) ? assets : assets.results).map(mapAsset))
+  } catch (error) {
+    console.error('Erro ao carregar ativos:', error)
+  }
+
+  try {
+    const categoryList = await listCategoriesRequest()
+    categories.push(...(Array.isArray(categoryList) ? categoryList : categoryList.results))
+  } catch (error) {
+    console.error('Erro ao carregar categorias:', error)
   }
 })
 
@@ -109,7 +137,8 @@ const labDeletionErrorMessage = ref('')
 const labForm = reactive({
   acronym: '',
   name: '',
-  responsible: ''
+  numeroTa: '',
+  responsible: null
 })
 
 const assetForm = reactive({
@@ -178,7 +207,8 @@ function resetAssetForm() {
 function resetLabForm() {
   labForm.acronym = ''
   labForm.name = ''
-  labForm.responsible = ''
+  labForm.numeroTa = ''
+  labForm.responsible = null
   labValidationMessage.value = ''
 }
 
@@ -188,7 +218,8 @@ function openLabForm(lab = null) {
   editingLabId.value = lab?.id ?? null
   labForm.acronym = lab?.acronym ?? ''
   labForm.name = lab?.title ?? ''
-  labForm.responsible = lab?.responsible ?? ''
+  labForm.numeroTa = lab?.numeroTa ?? ''
+  labForm.responsible = lab?.responsibleId ?? null
   showLabModal.value = true
 }
 
@@ -198,13 +229,19 @@ function openLabDetails(lab) {
 }
 
 async function saveLab() {
+  if (!labForm.name.trim()) {
+    labValidationMessage.value = 'Preencha o nome do laboratório.'
+    return
+  }
+
   if (!labForm.acronym.trim()) {
     labValidationMessage.value = 'Preencha a sigla do laboratório.'
     return
   }
 
-  if (!labForm.responsible) {
-    labValidationMessage.value = 'Selecione o responsável pelo laboratório.'
+  const numeroTa = Number(labForm.numeroTa)
+  if (!Number.isInteger(numeroTa) || numeroTa < 1) {
+    labValidationMessage.value = 'Informe um Número TA válido.'
     return
   }
 
@@ -221,14 +258,11 @@ async function saveLab() {
       const laboratory = await updateLaboratoryRequest(laboratoryId, {
         nome: labForm.name.trim(),
         localizacao: labForm.acronym.trim(),
-        responsavel: labForm.responsible
+        numero_ta: numeroTa,
+        responsavel: labForm.responsible || null
       })
 
-      Object.assign(lab, {
-        acronym: laboratory.localizacao,
-        title: laboratory.nome,
-        responsible: laboratory.responsavel || 'Não informado'
-      })
+      Object.assign(lab, mapLaboratory(laboratory))
       showLabModal.value = false
       editingLabId.value = null
       resetLabForm()
@@ -242,15 +276,11 @@ async function saveLab() {
     const laboratory = await createLaboratoryRequest({
       nome: labForm.name.trim(),
       localizacao: labForm.acronym.trim(),
-      responsavel: labForm.responsible
+      numero_ta: numeroTa,
+      responsavel: labForm.responsible || null
     })
 
-    labs.unshift({
-      id: laboratory.id,
-      acronym: laboratory.localizacao,
-      title: laboratory.nome,
-      responsible: laboratory.responsavel || 'Não informado'
-    })
+    labs.unshift(mapLaboratory(laboratory))
     showLabModal.value = false
     resetLabForm()
   } catch (error) {
@@ -451,7 +481,7 @@ function handleRowAction({ action, row }) {
           <Searchbar v-model="searchText" />
         </div>
 
-        <Button @click="openLabForm()" variant="primary" size="sm">
+        <Button v-if="canManageLabs" @click="openLabForm()" variant="primary" size="sm">
           <Plus :size="18" />
           Criar Laboratório
         </Button>
@@ -469,21 +499,31 @@ function handleRowAction({ action, row }) {
 
           <div class="space-y-2">
             <label for="lab-name" class="text-sm font-medium text-text-primary">
-              Nome
+              Nome <span class="text-red-primary">*</span>
             </label>
-            <input id="lab-name" v-model="labForm.name" type="text" placeholder="Laboratório CAM"
+            <input id="lab-name" v-model="labForm.name" type="text" placeholder="Laboratório CAM" required
+              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+          </div>
+
+          <div class="space-y-2">
+            <label for="lab-number-ta" class="text-sm font-medium text-text-primary">
+              Número TA <span class="text-red-primary">*</span>
+            </label>
+            <input id="lab-number-ta" v-model="labForm.numeroTa" type="number" min="1" step="1" placeholder="1" required
               class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
           </div>
 
           <div class="space-y-2">
             <label for="lab-responsible" class="text-sm font-medium text-text-primary">
-              Responsável <span class="text-red-primary">*</span>
+              Responsável
             </label>
-            <select id="lab-responsible" v-model="labForm.responsible" required
+            <select id="lab-responsible" v-model.number="labForm.responsible"
               class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option disabled value="">Selecione</option>
-              <option value="responsible-1">Responsável 1</option>
-              <option value="responsible-2">Responsável 2</option>
+              <option :value="null">Sem responsável</option>
+              <option v-for="responsible in laboratoryResponsibles" :key="responsible.id_user"
+                :value="responsible.id_user">
+                {{ responsible.nome }} ({{ responsible.cargo }})
+              </option>
             </select>
           </div>
 
@@ -514,6 +554,10 @@ function handleRowAction({ action, row }) {
               <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.title }}</dd>
             </div>
             <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
+              <dt class="font-medium text-text-primary">Número TA</dt>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.numeroTa }}</dd>
+            </div>
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Responsável</dt>
               <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.responsible }}</dd>
             </div>
@@ -537,7 +581,8 @@ function handleRowAction({ action, row }) {
       ]" :values="[5, 12, 8, 15, 15, 22, 18, 22, 8, 5]" />
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
-          :responsible="lab.responsible" @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
+          :responsible="lab.responsible" :can-manage="canManageLabs"
+          @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
           @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>

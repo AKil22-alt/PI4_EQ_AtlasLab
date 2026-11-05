@@ -42,6 +42,7 @@ from .serializers import (
     ManutencaoASerializer,
     MovimentacoesASerializer,
     OrdemServicoSerializer,
+    ResponsavelSalaSerializer,
     SalaLabSerializer,
     SolicitacaoCadastroSerializer,
     UsuarioSerializer,
@@ -203,6 +204,16 @@ class UsuarioViewSet(AuditedModelViewSet):
     roles_write = ADMIN
     entity_name = "Usuario"
     search_fields = ["nome", "email"]
+
+    def get_permissions(self):
+        self.action_roles = {"responsaveis": TECNICO}
+        return super().get_permissions()
+
+    @action(detail=False, methods=["get"], url_path="responsaveis")
+    def responsaveis(self, request):
+        usuarios = Usuario.objects.all().order_by("nome", "id_user")
+        serializer = ResponsavelSalaSerializer(usuarios, many=True)
+        return Response(serializer.data)
 
 
 class GrupoAViewSet(AuditedModelViewSet):

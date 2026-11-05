@@ -105,25 +105,29 @@ export function rejectRequestRequest(requestId) {
 }
 
 export function listLaboratoriesRequest() {
-    return apiRequest('/laboratorios/')
+    return apiRequest('/salas/')
+}
+
+export function listLaboratoryResponsiblesRequest() {
+    return apiRequest('/usuarios/responsaveis/')
 }
 
 export function createLaboratoryRequest(laboratory) {
-    return apiRequest('/laboratorios/', {
+    return apiRequest('/salas/', {
         method: 'POST',
         body: JSON.stringify(laboratory)
     })
 }
 
 export function updateLaboratoryRequest(laboratoryId, laboratory) {
-    return apiRequest(`/laboratorios/${laboratoryId}/`, {
+    return apiRequest(`/salas/${laboratoryId}/`, {
         method: 'PATCH',
         body: JSON.stringify(laboratory)
     })
 }
 
 export function deleteLaboratoryRequest(laboratoryId) {
-    return apiRequest(`/laboratorios/${laboratoryId}/`, {
+    return apiRequest(`/salas/${laboratoryId}/`, {
         method: 'DELETE',
     })
 }
