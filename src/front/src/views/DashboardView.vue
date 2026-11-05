@@ -40,18 +40,18 @@ const assetDistribution = ref({
 </script>
 
 <template>
-    <main class="box-border flex h-[calc(100vh-96px)] w-full flex-col gap-6 overflow-hidden px-8 pb-8 pt-6">
+    <main class="box-border flex min-h-[calc(100vh-96px)] w-full flex-col gap-6 overflow-y-auto px-4 pb-8 pt-6 sm:px-8 min-[1200px]:h-[calc(100vh-96px)] min-[1200px]:min-h-0 min-[1200px]:overflow-hidden">
         <section class="grid grid-cols-1 gap-4 min-[700px]:grid-cols-4" aria-label="Resumo da aplicação">
             <SummaryCard v-for="card in summaryCards" :key="card.id" :title="card.title" :value="card.value"
                 :icon="card.icon" :to="card.to" :active="card.active" />
         </section>
 
-        <section class="grid min-h-0 flex-1 grid-cols-1 gap-4 min-[700px]:grid-cols-2"
+        <section class="grid min-h-0 flex-1 grid-cols-1 gap-4 min-[1200px]:grid-cols-2"
             aria-label="Atividades e indicadores">
             <ActivityList title="Últimas atividades" :activities="activities" />
 
             <div
-                class="min-h-0 space-y-2 min-[700px]:grid min-[700px]:h-full min-[700px]:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
+            class="min-h-0 space-y-4 min-[1200px]:grid min-[1200px]:h-full min-[1200px]:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
                 <BarChart title="Atividades Semanais" :labels="weeklyActivity.labels" :values="weeklyActivity.values"
                     compact />
 
