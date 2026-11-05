@@ -1,11 +1,22 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import {
+  createLaboratoryRequest,
+  listLaboratoriesRequest,
+  updateLaboratoryRequest,
+  deleteLaboratoryRequest,
+  listAssetsRequest,
+  listCategoriesRequest,
+  createAssetRequest,
+  updateAssetRequest,
+  deleteAssetRequest
+} from '../services/api'
 import Table from '../components/Table.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { ArrowRightLeft, Pencil, Plus } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRightLeft, Pencil, Plus } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 
@@ -13,12 +24,48 @@ const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
 
-const labs = reactive([
-  { id: 1, acronym: 'B-101', title: 'Laboratório CAM', responsible: 'Thainara' },
-  { id: 2, acronym: 'B-102', title: 'Laboratório CAD', responsible: 'Thainara' },
-  { id: 3, acronym: 'B-103', title: 'Laboratório de Eletrônica', responsible: 'Thainara' },
-  { id: 4, acronym: 'B-104', title: 'Laboratório de Automação', responsible: 'Thainara' }
-])
+const labs = reactive([])
+const categories = reactive([])
+
+function mapAsset(asset) {
+  const origin = asset.laboratorio_origem_detalhes || asset.laboratorio_detalhes
+  const originId = asset.laboratorio_origem ?? asset.laboratorio
+
+  return {
+    id: asset.id,
+    patrimony: asset.patrimonio || '',
+    name: asset.nome,
+    originId,
+    currentId: asset.laboratorio,
+    origin: origin?.localizacao || 'Não informado',
+    current: asset.laboratorio_detalhes?.localizacao || 'Não informado',
+    categoryId: asset.categoria,
+    category: asset.categoria_detalhes?.nome || 'Não informado',
+    status: asset.status ? 'Ativo' : 'Inativo',
+    description: asset.descricao || ''
+  }
+}
+
+onMounted(async () => {
+  try {
+    const laboratories = await listLaboratoriesRequest()
+    const mappedLaboratories = laboratories.map(({ id, nome, localizacao, responsavel }) => ({
+      id,
+      acronym: localizacao,
+      title: nome,
+      responsible: responsavel || 'Não informado'
+    }))
+    labs.push(...mappedLaboratories)
+
+    const assets = await listAssetsRequest()
+    rows.push(...assets.map(mapAsset))
+
+    const categoryList = await listCategoriesRequest()
+    categories.push(...categoryList)
+  } catch (error) {
+    console.error('Erro ao carregar laboratórios:', error)
+  }
+})
 
 const filteredLabs = computed(() => {
   const query = searchText.value.trim().toLowerCase()
@@ -32,44 +79,16 @@ const filteredLabs = computed(() => {
 })
 
 const columns = [
-  { key: 'id', label: 'Patrimônio', width: '8%' },
+  { key: 'patrimony', label: 'Patrimônio', width: '8%' },
   { key: 'name', label: 'Nome', width: '16%' },
   { key: 'origin', label: 'Local de origem', width: '15%' },
   { key: 'current', label: 'Local atual', width: '15%' },
   { key: 'status', label: 'Status', width: '10%', type: 'status' },
   { key: 'description', label: 'Descrição', width: '28%' },
-  { key: 'actions', label: 'Ações', width: '8%', type: 'actions' }
+  { key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
-const rows = reactive([
-  {
-    id: '1256652',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  },
-  {
-    id: '1256653',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  },
-  {
-    id: '1256654',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  }
-])
+const rows = reactive([])
 
 const showLabModal = ref(false)
 const showLabDetailsModal = ref(false)
@@ -82,6 +101,10 @@ const confirmationAction = ref(null)
 const editingLabId = ref(null)
 const editingAssetId = ref(null)
 const pendingLabId = ref(null)
+const pendingAssetId = ref(null)
+const labValidationMessage = ref('')
+const showLabDeletionErrorModal = ref(false)
+const labDeletionErrorMessage = ref('')
 
 const labForm = reactive({
   acronym: '',
@@ -106,7 +129,7 @@ const assetFilters = reactive({
   status: ''
 })
 
-const patrimonyOptions = computed(() => [...new Set(rows.map((row) => row.id))])
+const patrimonyOptions = computed(() => [...new Set(rows.map((row) => row.patrimony))])
 const nameOptions = computed(() => [...new Set(rows.map((row) => row.name))])
 const locationOptions = computed(() => [
   ...new Set(rows.flatMap((row) => [row.origin, row.current]))
@@ -119,7 +142,7 @@ const filteredRows = computed(() => {
   return rows.filter((row) => {
     const matchesSearch = !query || Object.values(row)
       .some((value) => String(value).toLowerCase().includes(query))
-    const matchesPatrimony = !assetFilters.patrimony || row.id === assetFilters.patrimony
+    const matchesPatrimony = !assetFilters.patrimony || row.patrimony === assetFilters.patrimony
     const matchesName = !assetFilters.name || row.name === assetFilters.name
     const matchesLocation = !assetFilters.location
       || row.origin === assetFilters.location
@@ -156,10 +179,12 @@ function resetLabForm() {
   labForm.acronym = ''
   labForm.name = ''
   labForm.responsible = ''
+  labValidationMessage.value = ''
 }
 
 function openLabForm(lab = null) {
   showLabDetailsModal.value = false
+  labValidationMessage.value = ''
   editingLabId.value = lab?.id ?? null
   labForm.acronym = lab?.acronym ?? ''
   labForm.name = lab?.title ?? ''
@@ -172,38 +197,86 @@ function openLabDetails(lab) {
   showLabDetailsModal.value = true
 }
 
-function saveLab() {
-  if (!labForm.acronym.trim()) return
-  if (editingLabId.value !== null) {
-    requestConfirmation('save-lab')
+async function saveLab() {
+  if (!labForm.acronym.trim()) {
+    labValidationMessage.value = 'Preencha a sigla do laboratório.'
     return
   }
 
-  labs.push({
-    id: Date.now(),
-    acronym: labForm.acronym.trim(),
-    title: labForm.name.trim(),
-    responsible: labForm.responsible
-  })
-  showLabModal.value = false
-  resetLabForm()
+  if (!labForm.responsible) {
+    labValidationMessage.value = 'Selecione o responsável pelo laboratório.'
+    return
+  }
+
+  labValidationMessage.value = ''
+  if (editingLabId.value !== null) {
+    const laboratoryId = editingLabId.value
+    const lab = labs.find((item) => String(item.id) === String(laboratoryId))
+    if (!lab) {
+      console.error('Laboratório não encontrado para edição:', laboratoryId)
+      return
+    }
+
+    try {
+      const laboratory = await updateLaboratoryRequest(laboratoryId, {
+        nome: labForm.name.trim(),
+        localizacao: labForm.acronym.trim(),
+        responsavel: labForm.responsible
+      })
+
+      Object.assign(lab, {
+        acronym: laboratory.localizacao,
+        title: laboratory.nome,
+        responsible: laboratory.responsavel || 'Não informado'
+      })
+      showLabModal.value = false
+      editingLabId.value = null
+      resetLabForm()
+    } catch (error) {
+      console.error('Erro ao editar laboratório:', error)
+    }
+    return
+  }
+
+  try {
+    const laboratory = await createLaboratoryRequest({
+      nome: labForm.name.trim(),
+      localizacao: labForm.acronym.trim(),
+      responsavel: labForm.responsible
+    })
+
+    labs.unshift({
+      id: laboratory.id,
+      acronym: laboratory.localizacao,
+      title: laboratory.nome,
+      responsible: laboratory.responsavel || 'Não informado'
+    })
+    showLabModal.value = false
+    resetLabForm()
+  } catch (error) {
+    console.error('Erro ao criar laboratório:', error)
+  }
 }
 
 function openAssetForm(asset = null) {
   showDetailsModal.value = false
   editingAssetId.value = asset?.id ?? null
-  assetForm.patrimony = asset?.id ?? ''
+  assetForm.patrimony = asset?.patrimony ?? ''
   assetForm.name = asset?.name ?? ''
-  assetForm.origin = asset?.origin ?? ''
-  assetForm.current = asset?.current ?? ''
-  assetForm.category = asset?.category ?? ''
+  assetForm.origin = asset?.originId ?? ''
+  assetForm.current = asset?.currentId ?? ''
+  assetForm.category = asset?.categoryId ?? ''
   assetForm.status = asset?.status ?? 'Ativo'
   assetForm.description = asset?.description ?? ''
   showAssetModal.value = true
 }
 
-function createAsset() {
-  if (!assetForm.patrimony.trim()) {
+async function createAsset() {
+  if (!assetForm.name.trim()) {
+    return
+  }
+
+  if (!assetForm.category || !assetForm.current) {
     return
   }
 
@@ -212,36 +285,59 @@ function createAsset() {
     return
   }
 
-  rows.push({
-    id: assetForm.patrimony.trim(),
-    name: assetForm.name.trim(),
-    origin: assetForm.origin,
-    current: assetForm.current,
-    category: assetForm.category,
-    status: assetForm.status,
-    description: assetForm.description.trim()
-  })
+  try {
+    const asset = await createAssetRequest({
+      patrimonio: assetForm.patrimony.trim(),
+      nome: assetForm.name.trim(),
+      descricao: assetForm.description.trim(),
+      status: assetForm.status === 'Ativo',
+      categoria: Number(assetForm.category),
+      laboratorio_origem: Number(assetForm.origin),
+      laboratorio: Number(assetForm.current)
+    })
 
-  showAssetModal.value = false
-  resetAssetForm()
+    rows.push(mapAsset(asset))
+
+    showAssetModal.value = false
+    resetAssetForm()
+  } catch (error) {
+    console.error('Erro ao criar ativo:', error)
+  }
 }
 
-function saveAsset() {
+async function saveAsset() {
   const asset = rows.find((row) => row.id === editingAssetId.value)
   if (!asset) return
 
-  Object.assign(asset, {
-    id: assetForm.patrimony.trim(),
-    name: assetForm.name.trim(),
-    origin: assetForm.origin,
-    current: assetForm.current,
-    category: assetForm.category,
-    status: assetForm.status,
-    description: assetForm.description.trim()
-  })
-  showAssetModal.value = false
-  editingAssetId.value = null
-  resetAssetForm()
+  try {
+    const updatedAsset = await updateAssetRequest(asset.id, {
+      patrimonio: assetForm.patrimony.trim(),
+      nome: assetForm.name.trim(),
+      descricao: assetForm.description.trim(),
+      status: assetForm.status === 'Ativo',
+      categoria: Number(assetForm.category),
+      laboratorio_origem: Number(assetForm.origin),
+      laboratorio: Number(assetForm.current)
+    })
+
+    Object.assign(asset, {
+      patrimony: updatedAsset.patrimonio || '',
+      name: updatedAsset.nome,
+      originId: updatedAsset.laboratorio_origem ?? updatedAsset.laboratorio,
+      currentId: updatedAsset.laboratorio,
+      origin: (updatedAsset.laboratorio_origem_detalhes || updatedAsset.laboratorio_detalhes)?.localizacao || 'Não informado',
+      current: updatedAsset.laboratorio_detalhes?.localizacao || 'Não informado',
+      categoryId: updatedAsset.categoria,
+      category: updatedAsset.categoria_detalhes?.nome || 'Não informado',
+      status: updatedAsset.status ? 'Ativo' : 'Inativo',
+      description: updatedAsset.descricao || ''
+    })
+    showAssetModal.value = false
+    editingAssetId.value = null
+    resetAssetForm()
+  } catch (error) {
+    console.error('Erro ao editar ativo:', error)
+  }
 }
 
 function requestConfirmation(action) {
@@ -254,25 +350,62 @@ function requestLabDeletion(lab) {
   requestConfirmation('delete-lab')
 }
 
-function confirmAction() {
-  if (confirmationAction.value === 'save-lab') {
-    const lab = labs.find((item) => item.id === editingLabId.value)
-    if (lab) Object.assign(lab, {
-      acronym: labForm.acronym.trim(),
-      title: labForm.name.trim(),
-      responsible: labForm.responsible
-    })
-    showLabModal.value = false
-    editingLabId.value = null
-    resetLabForm()
+function requestAssetDeletion(asset) {
+  pendingAssetId.value = asset.id
+  requestConfirmation('delete-asset')
+}
+
+function goToAssetsFromLabDeletionError() {
+  showLabDeletionErrorModal.value = false
+  activeTab.value = 'assets'
+}
+
+async function confirmAction() {
+  const action = confirmationAction.value
+
+  if (action === 'save-asset') await saveAsset()
+
+  if (action === 'delete-lab') {
+    try {
+      await deleteLaboratoryRequest(pendingLabId.value)
+
+      const labIndex = labs.findIndex(
+        (lab) => String(lab.id) === String(pendingLabId.value)
+      )
+
+      if (labIndex !== -1) {
+        labs.splice(labIndex, 1)
+      }
+
+      pendingLabId.value = null
+    } catch (error) {
+      console.error('Erro ao excluir laboratório:', error)
+      labDeletionErrorMessage.value = error.message
+      showLabDeletionErrorModal.value = true
+    }
   }
 
-  if (confirmationAction.value === 'save-asset') saveAsset()
+  if (action === 'delete-asset') {
+    try {
+      await deleteAssetRequest(pendingAssetId.value)
 
-  if (confirmationAction.value === 'delete-lab') {
-    const labIndex = labs.findIndex((lab) => lab.id === pendingLabId.value)
-    if (labIndex !== -1) labs.splice(labIndex, 1)
-    pendingLabId.value = null
+      const assetIndex = rows.findIndex(
+        (asset) => String(asset.id) === String(pendingAssetId.value)
+      )
+
+      if (assetIndex !== -1) {
+        rows.splice(assetIndex, 1)
+      }
+
+      if (selectedAsset.value?.id === pendingAssetId.value) {
+        selectedAsset.value = null
+        showDetailsModal.value = false
+      }
+
+      pendingAssetId.value = null
+    } catch (error) {
+      console.error('Erro ao excluir ativo:', error)
+    }
   }
 
   confirmationAction.value = null
@@ -284,12 +417,14 @@ function handleRowAction({ action, row }) {
     showDetailsModal.value = true
   } else if (action === 'edit') {
     openAssetForm(row)
+  } else if (action === 'delete') {
+    requestAssetDeletion(row)
   }
 }
 </script>
 
 <template>
-  <main class="space-y-6 px-8 pb-8 pt-0">
+  <main class="min-w-0 space-y-6 px-4 pb-8 pt-0 sm:px-8">
     <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios e ativos">
       <button type="button" :class="[
         'border-b-2 px-2 pb-2 text-sm',
@@ -311,8 +446,8 @@ function handleRowAction({ action, row }) {
     </nav>
 
     <section v-if="activeTab === 'labs'" class="space-y-6">
-      <div class="flex items-center justify-between gap-4">
-        <div class="w-60">
+      <div class="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
+        <div class="w-full sm:w-60">
           <Searchbar v-model="searchText" />
         </div>
 
@@ -321,7 +456,8 @@ function handleRowAction({ action, row }) {
           Criar Laboratório
         </Button>
       </div>
-      <Modal v-model="showLabModal" :title="editingLabId === null ? 'Criar Laboratório' : 'Editar Laboratório'" size="lg">
+      <Modal v-model="showLabModal" :title="editingLabId === null ? 'Criar Laboratório' : 'Editar Laboratório'"
+        size="lg">
         <div class="space-y-5">
           <div class="space-y-2">
             <label for="lab-acronym" class="text-sm font-medium text-text-primary">
@@ -350,6 +486,10 @@ function handleRowAction({ action, row }) {
               <option value="responsible-2">Responsável 2</option>
             </select>
           </div>
+
+          <p v-if="labValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+            {{ labValidationMessage }}
+          </p>
         </div>
 
         <template #footer>
@@ -365,17 +505,17 @@ function handleRowAction({ action, row }) {
       <Modal v-model="showLabDetailsModal" title="Detalhes do laboratório" size="sm">
         <div v-if="selectedLab" class="space-y-5 border-t border-red-primary pt-4">
           <dl class="space-y-4 text-sm">
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Sigla</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.acronym }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.acronym }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Nome</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.title }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.title }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Responsável</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.responsible }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.responsible }}</dd>
             </div>
           </dl>
         </div>
@@ -398,8 +538,7 @@ function handleRowAction({ action, row }) {
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
           :responsible="lab.responsible" @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
-          @edit="openLabDetails(lab)"
-          @delete="requestLabDeletion(lab)" />
+          @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>
 
@@ -409,94 +548,95 @@ function handleRowAction({ action, row }) {
           <Plus :size="18" />
           Criar Ativo
         </Button>
-      <Modal v-model="showAssetModal" :title="editingAssetId === null ? 'Criar Ativo' : 'Editar Ativo'" size="lg">
-        <div class="space-y-5">
-          <div class="space-y-2">
-            <label for="asset-patrimony" class="text-sm font-medium text-text-primary">
-              Patrimônio <span class="text-red-primary">*</span>
-            </label>
-            <input id="asset-patrimony" v-model="assetForm.patrimony" type="text" placeholder="Digite o patrimônio do ativo" required
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
-          </div>
-
-          <div class="space-y-2">
-            <label for="asset-name" class="text-sm font-medium text-text-primary">
-              Nome
-            </label>
-            <input id="asset-name" v-model="assetForm.name" type="text" placeholder="Digite o nome do ativo"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
-          </div>
-
-          <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <Modal v-model="showAssetModal" :title="editingAssetId === null ? 'Criar Ativo' : 'Editar Ativo'" size="lg">
+          <div class="space-y-5">
             <div class="space-y-2">
-              <label for="asset-origin" class="text-sm font-medium text-text-primary">
-                Local de Origem
+              <label for="asset-patrimony" class="text-sm font-medium text-text-primary">
+                Patrimônio <span class="text-red-primary">*</span>
               </label>
-              <select id="asset-origin" v-model="assetForm.origin"
+              <input id="asset-patrimony" v-model="assetForm.patrimony" type="text"
+                placeholder="Digite o patrimônio do ativo" required
+                class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+            </div>
+
+            <div class="space-y-2">
+              <label for="asset-name" class="text-sm font-medium text-text-primary">
+                Nome
+              </label>
+              <input id="asset-name" v-model="assetForm.name" type="text" placeholder="Digite o nome do ativo"
+                class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+            </div>
+
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div class="space-y-2">
+                <label for="asset-origin" class="text-sm font-medium text-text-primary">
+                  Local de Origem
+                </label>
+                <select id="asset-origin" v-model="assetForm.origin"
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option value="">Selecione</option>
+                  <option v-for="lab in labs" :key="`origin-${lab.id}`" :value="lab.id">
+                    {{ lab.acronym }} - {{ lab.title }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="space-y-2">
+                <label for="asset-current" class="text-sm font-medium text-text-primary">
+                  Local Atual
+                </label>
+                <select id="asset-current" v-model="assetForm.current"
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option value="">Selecione</option>
+                  <option v-for="lab in labs" :key="`current-${lab.id}`" :value="lab.id">
+                    {{ lab.acronym }} - {{ lab.title }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <label for="asset-category" class="text-sm font-medium text-text-primary">
+                Categoria
+              </label>
+              <select id="asset-category" v-model="assetForm.category"
                 class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
                 <option value="">Selecione</option>
-                <option v-for="location in locationOptions" :key="`origin-${location}`" :value="location">
-                  {{ location }}
+                <option v-for="category in categories" :key="category.id" :value="category.id">
+                  {{ category.nome }}
                 </option>
               </select>
             </div>
 
             <div class="space-y-2">
-              <label for="asset-current" class="text-sm font-medium text-text-primary">
-                Local Atual
+              <label for="asset-status" class="text-sm font-medium text-text-primary">
+                Status
               </label>
-              <select id="asset-current" v-model="assetForm.current"
+              <select id="asset-status" v-model="assetForm.status"
                 class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-                <option value="">Selecione</option>
-                <option v-for="location in locationOptions" :key="`current-${location}`" :value="location">
-                  {{ location }}
-                </option>
+                <option value="Ativo">Ativo</option>
+                <option value="Inativo">Inativo</option>
               </select>
+            </div>
+
+            <div class="space-y-2">
+              <label for="asset-description" class="text-sm font-medium text-text-primary">
+                Descrição
+              </label>
+              <textarea id="asset-description" v-model="assetForm.description" rows="4" placeholder="Descreva o ativo"
+                class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
             </div>
           </div>
 
-          <div class="space-y-2">
-            <label for="asset-category" class="text-sm font-medium text-text-primary">
-              Categoria
-            </label>
-            <select id="asset-category" v-model="assetForm.category"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option value="">Selecione</option>
-              <option value="Equipamento">Equipamento</option>
-              <option value="Mobiliário">Mobiliário</option>
-            </select>
-          </div>
-
-          <div class="space-y-2">
-            <label for="asset-status" class="text-sm font-medium text-text-primary">
-              Status
-            </label>
-            <select id="asset-status" v-model="assetForm.status"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option value="Ativo">Ativo</option>
-              <option value="Inativo">Inativo</option>
-            </select>
-          </div>
-
-          <div class="space-y-2">
-            <label for="asset-description" class="text-sm font-medium text-text-primary">
-              Descrição
-            </label>
-            <textarea id="asset-description" v-model="assetForm.description" rows="4"
-              placeholder="Descreva o ativo"
-              class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
-          </div>
-        </div>
-
-        <template #footer>
-          <Button variant="outline" @click="showAssetModal = false; editingAssetId = null">
-            Cancelar
-          </Button>
-          <Button variant="primary" @click="createAsset">
-            {{ editingAssetId === null ? 'Criar' : 'Salvar' }}
-          </Button>
-        </template>
-      </Modal>
+          <template #footer>
+            <Button variant="outline" @click="showAssetModal = false; editingAssetId = null">
+              Cancelar
+            </Button>
+            <Button variant="primary" @click="createAsset">
+              {{ editingAssetId === null ? 'Criar' : 'Salvar' }}
+            </Button>
+          </template>
+        </Modal>
       </div>
 
       <div class="flex flex-wrap items-end gap-3">
@@ -553,43 +693,38 @@ function handleRowAction({ action, row }) {
         </Button>
       </div>
 
-      <Table
-        :columns="columns"
-        :rows="filteredRows"
-        row-key="id"
-        @row-action="handleRowAction"
-      />
+      <Table :columns="columns" :rows="filteredRows" row-key="id" @row-action="handleRowAction" />
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
           <dl class="space-y-4 text-sm">
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Patrimônio</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.id }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.patrimony }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Nome</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.name }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.name }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Local de Origem</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.origin }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.origin }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Local Atual</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.current }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.current }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Categoria</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.category }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.category }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Status</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.status }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.status }}</dd>
             </div>
             <div class="space-y-2">
               <dt class="font-medium text-text-primary">Descrição</dt>
-              <dd class="text-text-secondary">{{ selectedAsset.description }}</dd>
+              <dd class="break-words whitespace-pre-wrap text-text-secondary">{{ selectedAsset.description }}</dd>
             </div>
           </dl>
         </div>
@@ -606,19 +741,34 @@ function handleRowAction({ action, row }) {
         </template>
       </Modal>
 
-      <ConfirmModal
-        v-model="showConfirmation"
-        :title="confirmationAction === 'delete-lab'
-          ? 'Excluir laboratório'
-          : confirmationAction === 'save-lab' ? 'Salvar laboratório' : 'Salvar ativo'"
-        :message="confirmationAction === 'delete-lab'
-          ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-          : confirmationAction === 'save-lab'
-            ? 'Tem certeza que deseja salvar as alterações deste laboratório?'
-            : 'Tem certeza que deseja salvar as alterações deste ativo?'"
-        :confirm-text="confirmationAction === 'delete-lab' ? 'Excluir' : 'Salvar'"
-        @confirm="confirmAction"
-      />
     </section>
+
+    <Modal v-model="showLabDeletionErrorModal" title="Não foi possível excluir" size="sm">
+      <div class="flex items-start gap-3 rounded-2xl bg-bg-red p-4 text-sm text-text-primary">
+        <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+        <p>{{ labDeletionErrorMessage }}</p>
+      </div>
+
+      <template #footer>
+        <Button variant="outline" size="sm" @click="showLabDeletionErrorModal = false">
+          Fechar
+        </Button>
+        <Button variant="primary" size="sm" @click="goToAssetsFromLabDeletionError">
+          Ir para ativos
+        </Button>
+      </template>
+    </Modal>
+
+    <ConfirmModal v-model="showConfirmation" :title="confirmationAction === 'delete-lab'
+      ? 'Excluir laboratório'
+      : confirmationAction === 'delete-asset'
+        ? 'Excluir ativo'
+        : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
+        ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+        : confirmationAction === 'delete-asset'
+          ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser revertida.'
+          : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+      :confirm-text="confirmationAction === 'delete-lab' || confirmationAction === 'delete-asset' ? 'Excluir' : 'Salvar'"
+      @confirm="confirmAction" />
   </main>
 </template>

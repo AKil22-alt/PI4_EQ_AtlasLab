@@ -20,6 +20,7 @@ from .audit import registrar_acao
 from .models import (
     ApiToken,
     Ativo,
+    Cargo,
     DenunciaF,
     GrupoA,
     LogAcao,
@@ -27,11 +28,13 @@ from .models import (
     MovimentacoesA,
     OrdemServico,
     SalaLab,
+    SolicitacaoCadastro,
     Usuario,
 )
 from .permissions import ADMIN, TODOS, TECNICO, CargoPermission
 from .serializers import (
     AtivoSerializer,
+    CadastroSerializer,
     DenunciaFSerializer,
     GrupoASerializer,
     LogAcaoSerializer,
@@ -40,6 +43,7 @@ from .serializers import (
     MovimentacoesASerializer,
     OrdemServicoSerializer,
     SalaLabSerializer,
+    SolicitacaoCadastroSerializer,
     UsuarioSerializer,
 )
 
@@ -79,6 +83,62 @@ class LoginView(APIView):
             {"token": raw_token, "usuario": UsuarioSerializer(user).data},
             status=status.HTTP_200_OK,
         )
+
+
+class CadastroView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = CadastroSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"detail": "Cadastro enviado. Aguarde a aprovação do administrador."},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SolicitacoesCadastroView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_read = ADMIN
+
+    def get(self, request):
+        solicitacoes = SolicitacaoCadastro.objects.all()
+        serializer = SolicitacaoCadastroSerializer(solicitacoes, many=True)
+        return Response(serializer.data)
+
+
+class SolicitacaoCadastroActionView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_create = ADMIN
+    roles_write = ADMIN
+
+    def post(self, request, solicitacao_id):
+        with transaction.atomic():
+            solicitacao = get_object_or_404(
+                SolicitacaoCadastro.objects.select_for_update(), pk=solicitacao_id
+            )
+            if Usuario.objects.filter(email__iexact=solicitacao.email).exists():
+                return Response(
+                    {"email": ["Este e-mail já está cadastrado."]},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            usuario = Usuario.objects.create(
+                nome=solicitacao.nome,
+                email=solicitacao.email,
+                cargo=Cargo.COLABORADOR,
+                senha=solicitacao.senha_hash,
+            )
+            registrar_acao(request, "APROVAR", "SolicitacaoCadastro", solicitacao.pk)
+            solicitacao.delete()
+
+        return Response(UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, solicitacao_id):
+        solicitacao = get_object_or_404(SolicitacaoCadastro, pk=solicitacao_id)
+        solicitacao.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LogoutView(APIView):

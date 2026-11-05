@@ -14,8 +14,8 @@ const columns = [
   { key: 'sector', label: 'Setor', width: '14%' },
   { key: 'lab', label: 'Laboratório', width: '12%' },
   { key: 'status', label: 'Status', width: '10%', type: 'status' },
-  { key: 'description', label: 'Descrição', width: '16%' },
-  { key: 'actions', label: 'Ações', width: '8%', type: 'actions' }
+	{ key: 'description', label: 'Descrição', width: '12%' },
+	{ key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
 const rows = reactive([

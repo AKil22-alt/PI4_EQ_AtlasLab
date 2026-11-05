@@ -1,5 +1,6 @@
 // Importa as funções que criam o roteador e o histórico de navegação do browser.
 import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '../store/auth'
 
 // Cada objeto representa uma URL e o componente que será renderizado nela.
 // meta.title é usado pela Navbar para mostrar o título da página atual.
@@ -32,7 +33,7 @@ const routes = [
     path: '/users',
     name: 'Users',
     component: () => import('../views/UsersView.vue'),
-    meta: { title: 'Usuários' }
+    meta: { title: 'Usuários', requiresCargo: 'ADM' }
   }
 ]
 
@@ -41,6 +42,39 @@ const router = createRouter ({
     history: createWebHistory(),
     routes,
 });
+
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+  const hasToken = Boolean(localStorage.getItem('atlaslab-token'))
+
+  if (to.name === 'Login') {
+    if (!hasToken) return true
+
+    try {
+      await authStore.loadCurrentUser()
+    } catch {
+      return true
+    }
+
+    return authStore.currentUser ? { name: 'Dashboard' } : true
+  }
+
+  if (!hasToken) return { name: 'Login' }
+
+  let user = authStore.currentUser
+  if (!user) {
+    try {
+      user = await authStore.loadCurrentUser()
+    } catch {
+      return { name: 'Login' }
+    }
+  }
+
+  if (!user) return { name: 'Login' }
+  if (to.meta.requiresCargo && user.cargo !== to.meta.requiresCargo) {
+    return { name: 'Dashboard' }
+  }
+})
 
 // O router é importado pelo main.js e registrado na aplicação.
 export default router;

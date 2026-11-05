@@ -20,6 +20,18 @@ router.register("logs", views.LogAuditoriaViewSet, basename="log")  # somente AD
 api_urlpatterns = [
     path("health/", views.HealthView.as_view(), name="health"),
     path("auth/login/", views.LoginView.as_view(), name="auth-login"),
+    path("auth/cadastro/", views.CadastroView.as_view(), name="auth-cadastro"),
+    path("auth/solicitacoes/", views.SolicitacoesCadastroView.as_view(), name="auth-solicitacoes"),
+    path(
+        "auth/solicitacoes/<int:solicitacao_id>/aprovar/",
+        views.SolicitacaoCadastroActionView.as_view(),
+        name="auth-solicitacao-aprovar",
+    ),
+    path(
+        "auth/solicitacoes/<int:solicitacao_id>/",
+        views.SolicitacaoCadastroActionView.as_view(),
+        name="auth-solicitacao-recusar",
+    ),
     path("auth/logout/", views.LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", views.MeView.as_view(), name="auth-me"),
     path("", include(router.urls)),

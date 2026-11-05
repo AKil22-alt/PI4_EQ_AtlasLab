@@ -8,6 +8,16 @@ import {
     LogOut
 } from 'lucide-vue-next'
 
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '../store/auth';
+const router = useRouter()
+const authStore = useAuthStore()
+
+async function logout() {
+    await authStore.logout()
+    router.replace('/login')
+}
+
 // O App envia open para controlar a largura e a animação da Sidebar.
 // Exemplo: <Sidebar :open="sidebarOpen" />
 defineProps({
@@ -65,7 +75,9 @@ defineProps({
         </nav>
 
         <!-- mt-auto empurra o botão de saída para a parte inferior. -->
-        <button type="button"
+        <button 
+            type="button"
+            @click="logout"
             :class="['mt-auto flex items-center py-8 font-medium transition-colors hover:text-red-200', open ? 'gap-4 px-8' : 'justify-center px-2']"
             title="Sair">
             <LogOut :size="22" />

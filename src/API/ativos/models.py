@@ -35,6 +35,19 @@ class Usuario(models.Model):
         return self.nome
 
 
+class SolicitacaoCadastro(models.Model):
+    nome = models.CharField(max_length=150)
+    email = models.EmailField(max_length=254, unique=True)
+    senha_hash = models.CharField(max_length=128)
+    criada_em = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["criada_em"]
+
+    def __str__(self):
+        return f"Solicitação de cadastro: {self.email}"
+
+
 class GrupoA(models.Model):
     id_grupo_a = models.AutoField(primary_key=True)
     nome = models.CharField(max_length=100)

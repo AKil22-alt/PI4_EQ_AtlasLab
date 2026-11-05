@@ -8,8 +8,7 @@ import backgroundRegister from '../assets/images/fundo-cadastro.png'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const AUTH_MODE_KEY = 'atlaslab-auth-mode'
-const isRegistering = ref(localStorage.getItem(AUTH_MODE_KEY) === 'register')
+const isRegistering = ref(false)
 const name = ref('')
 const email = ref('')
 const senha = ref('')
@@ -26,29 +25,21 @@ function clearFeedback() {
 
 function toggleMode() {
     isRegistering.value = !isRegistering.value
-    localStorage.setItem(AUTH_MODE_KEY, isRegistering.value ? 'register' : 'login')
     clearFeedback()
 }
 
-function login() {
+async function login() {
     clearFeedback()
-    const normalizedEmail = email.value.trim().toLowerCase()
-    const isAdmin = normalizedEmail.includes('admin')
 
-    if (!isAdmin && !authStore.isApproved(normalizedEmail)) {
-        authStore.requestEntry({
-            name: normalizedEmail.split('@')[0],
-            email: normalizedEmail
-        })
-        message.value = 'Sua solicitação foi enviada para aprovação do administrador.'
-        return
+    try {
+        await authStore.login(email.value, senha.value)
+        router.push('/')
+    } catch (loginError) {
+        error.value = loginError.message
     }
-
-    authStore.currentUser = { email: normalizedEmail, role: isAdmin ? 'admin' : 'user' }
-    router.push('/users')
 }
 
-function register() {
+async function register() {
     clearFeedback()
 
     if (senha.value !== confirmSenha.value) {
@@ -56,15 +47,16 @@ function register() {
         return
     }
 
-    const wasCreated = authStore.requestEntry({
-        name: name.value,
-        email: email.value
-    })
-
-    message.value = wasCreated
-        ? 'Cadastro enviado. Aguarde a aprovação do administrador.'
-        : 'Este email já possui uma solicitação pendente.'
+    try {
+        const response = await authStore.register(name.value, email.value, senha.value)
+        message.value = response.detail || 'Cadastro enviado. Aguarde a aprovação do administrador.'
+        senha.value = ''
+        confirmSenha.value = ''
+    } catch (registerError) {
+        error.value = registerError.message
+    }
 }
+
 </script>
 
 <template>
@@ -84,7 +76,7 @@ function register() {
                     <label for="login-email">Email</label>
                     <div class="auth-input-wrap">
                         <Mail :size="18" />
-                        <input id="login-email" v-model="email" type="email" placeholder="Digite seu email" required />
+                        <input id="login-email" v-model="email" type="email" placeholder="Digite seu email" autocomplete="email" required />
                     </div>
 
                     <label for="login-password">Senha</label>
@@ -108,19 +100,19 @@ function register() {
                     <label for="register-name">Nome</label>
                     <div class="auth-input-wrap">
                         <UserRound :size="18" />
-                        <input id="register-name" v-model="name" type="text" placeholder="Digite seu nome" required />
+                        <input id="register-name" v-model="name" type="text" placeholder="Digite seu nome" autocomplete="name" required />
                     </div>
 
                     <label for="register-email">Email</label>
                     <div class="auth-input-wrap">
                         <Mail :size="18" />
-                        <input id="register-email" v-model="email" type="email" placeholder="Digite seu email" required />
+                        <input id="register-email" v-model="email" type="email" placeholder="Digite seu email" autocomplete="email" required />
                     </div>
 
                     <label for="register-password">Senha</label>
                     <div class="auth-input-wrap">
                         <LockKeyhole :size="18" />
-                        <input id="register-password" v-model="senha" :type="showPassword ? 'text' : 'password'" placeholder="Digite sua senha" required />
+                        <input id="register-password" v-model="senha" :type="showPassword ? 'text' : 'password'" placeholder="Digite sua senha" autocomplete="new-password" minlength="8" required />
                         <button type="button" class="password-toggle" aria-label="Mostrar senha" @click="showPassword = !showPassword">
                               <EyeOff v-if="showPassword" :size="18" />
                               <Eye v-else :size="18" />
@@ -130,7 +122,7 @@ function register() {
                     <label for="register-confirm-password">Confirmar senha</label>
                     <div class="auth-input-wrap">
                         <LockKeyhole :size="18" />
-                        <input id="register-confirm-password" v-model="confirmSenha" :type="showConfirmPassword ? 'text' : 'password'" placeholder="Confirme sua senha" required />
+                        <input id="register-confirm-password" v-model="confirmSenha" :type="showConfirmPassword ? 'text' : 'password'" placeholder="Confirme sua senha" autocomplete="new-password" minlength="8" required />
                         <button type="button" class="password-toggle" aria-label="Mostrar confirmação de senha" @click="showConfirmPassword = !showConfirmPassword">
                               <EyeOff v-if="showConfirmPassword" :size="18" />
                               <Eye v-else :size="18" />
@@ -141,7 +133,7 @@ function register() {
                 </form>
 
                 <p v-if="error" class="auth-feedback auth-feedback--error">{{ error }}</p>
-                <p v-if="message" class="auth-feedback">{{ message }}</p>
+                <p v-if="message" class="auth-feedback" role="status">{{ message }}</p>
 
                 <button type="button" class="auth-switch" @click="toggleMode">
                     {{ isRegistering ? 'Já possui uma conta?' : 'Não possui uma conta?' }}
@@ -181,16 +173,6 @@ function register() {
     justify-content: center;
     background: #fff;
     padding: 48px 56px;
-}
-
-.auth-page--register .auth-art {
-    grid-column: 2;
-    grid-row: 1;
-}
-
-.auth-page--register .auth-panel {
-    grid-column: 1;
-    grid-row: 1;
 }
 
 .auth-content {
@@ -303,6 +285,16 @@ function register() {
 
 .auth-submit:hover {
     background: #990007;
+}
+
+.auth-page--register .auth-art {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.auth-page--register .auth-panel {
+    grid-column: 1;
+    grid-row: 1;
 }
 
 .auth-page--register .auth-submit {

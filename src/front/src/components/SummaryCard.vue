@@ -12,6 +12,10 @@ const props = defineProps({
         type: Object,
         required: false
     },
+    to: {
+        type: String,
+        required: true
+    },
     active: {
         type: Boolean,
         default: false
@@ -19,8 +23,8 @@ const props = defineProps({
 })
 </script>
 <template>
-    <article :class="[
-        'flex min-h-[107px] flex-1 items-start justify-between rounded-lg p-4',
+    <RouterLink :to="props.to" :class="[
+        'flex min-h-[107px] flex-1 items-start justify-between rounded-lg p-4 transition duration-200 ease-out hover:-translate-y-1 hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-4',
         props.active
             ? 'bg-red-4 text-white'
             : 'bg-white text-black'
@@ -38,5 +42,5 @@ const props = defineProps({
         </div>
 
         <component :is="props.icon" :size="34" :class="props.active ? 'text-white' : 'text-red-4'" />
-    </article>
+    </RouterLink>
 </template>

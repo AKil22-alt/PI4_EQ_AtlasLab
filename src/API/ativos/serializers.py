@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from .models import (
     Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA,
-    OrdemServico, SalaLab, Usuario,
+    OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
 
@@ -55,6 +55,37 @@ class UsuarioSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     senha = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class CadastroSerializer(serializers.Serializer):
+    nome = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+    senha = serializers.CharField(write_only=True, min_length=8, trim_whitespace=False)
+
+    def validate_nome(self, value):
+        value = value.strip()
+        if len(value) < 3:
+            raise serializers.ValidationError("O nome deve ter pelo menos 3 caracteres.")
+        return value
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if Usuario.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Este e-mail já está cadastrado.")
+        if SolicitacaoCadastro.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Já existe uma solicitação para este e-mail.")
+        return value
+
+    def create(self, validated_data):
+        validated_data["senha_hash"] = make_password(validated_data.pop("senha"))
+        return SolicitacaoCadastro.objects.create(**validated_data)
+
+
+class SolicitacaoCadastroSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SolicitacaoCadastro
+        fields = ["id", "nome", "email", "criada_em"]
+        read_only_fields = fields
 
 
 class GrupoASerializer(serializers.ModelSerializer):

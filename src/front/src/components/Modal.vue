@@ -35,12 +35,11 @@ function close() {
   <!-- v-if remove o modal do DOM enquanto ele estiver fechado. -->
     <div
     v-if="modelValue"
-    class="fixed inset-y-0 right-0 z-50 flex items-center justify-center bg-black/40 px-4"
-    :style="{ left: 'var(--sidebar-width, 0px)' }"
+    class="fixed inset-y-0 left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-3 py-4 lg:left-[var(--sidebar-width,0px)] lg:px-4 lg:py-6"
     @click.self="close"
   >
     <section
-      class="w-full rounded-3xl bg-white p-8 shadow-xl"
+      class="max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-3xl bg-white p-4 shadow-xl sm:max-h-[calc(100vh-3rem)] sm:p-8"
       :class="{
         'max-w-md': size === 'sm',
         'max-w-2xl': size === 'md',
@@ -51,7 +50,7 @@ function close() {
     >
       <!-- Cabeçalho fixo: título via prop e botão de fechar opcional. -->
       <header class="flex items-start justify-between">
-        <h2 class="text-2xl font-semibold">{{ title }}</h2>
+        <h2 class="break-words text-2xl font-semibold">{{ title }}</h2>
 
         <button
           v-if="closable"
@@ -65,14 +64,14 @@ function close() {
       </header>
 
       <!-- Slot padrão: recebe o conteúdo principal, como texto, formulário ou detalhes. -->
-      <div class="mt-6">
+      <div class="mt-4 break-words sm:mt-6">
         <slot />
       </div>
 
       <!-- Slot footer é opcional; sem ele o modal não cria uma área de botões. -->
       <footer
         v-if="$slots.footer"
-        class="mt-8 flex items-center justify-between"
+        class="mt-6 flex flex-wrap items-center justify-end gap-3 sm:mt-8 sm:justify-between"
       >
         <slot name="footer" />
       </footer>

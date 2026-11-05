@@ -15,74 +15,111 @@ dados carregados e reutilizados em várias telas.
 
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-
-const STORAGE_KEY = 'atlaslab-entry-requests'
-const APPROVED_STORAGE_KEY = 'atlaslab-approved-users'
-
-function loadRequests() {
-	try {
-		return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-	} catch {
-		return []
-	}
-}
-
-function loadApprovedUsers() {
-	try {
-		return JSON.parse(localStorage.getItem(APPROVED_STORAGE_KEY) || '[]')
-	} catch {
-		return []
-	}
-}
+import {
+	approveRequestRequest,
+	currentUserRequest,
+	deleteUserRequest,
+	listRequestsRequest,
+	listUsersRequest,
+	loginRequest,
+	logoutRequest,
+	registerRequest,
+	rejectRequestRequest,
+	updateUserRoleRequest
+} from '../services/api'
 
 export const useAuthStore = defineStore('auth', () => {
-	const pendingRequests = ref(loadRequests())
-	const approvedUsers = ref(loadApprovedUsers())
 	const currentUser = ref(null)
+	const pendingRequests = ref([])
+	const approvedUsers = ref([])
+	const users = ref([])
 	const requestCount = computed(() => pendingRequests.value.length)
+	let currentUserPromise = null
 
-	function persistRequests() {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingRequests.value))
+	async function login(email, senha) {
+		const data = await loginRequest(email.trim(), senha)
+		localStorage.setItem('atlaslab-token', data.token)
+		localStorage.removeItem('atlaslab-refresh')
+		currentUser.value = data.usuario
+		return data.usuario
 	}
 
-	function persistApprovedUsers() {
-		localStorage.setItem(APPROVED_STORAGE_KEY, JSON.stringify(approvedUsers.value))
+	async function register(nome, email, senha) {
+		return registerRequest(nome.trim(), email.trim().toLowerCase(), senha)
 	}
 
-	function requestEntry({ name, email }) {
-		const normalizedEmail = email.trim().toLowerCase()
-		if (pendingRequests.value.some((request) => request.email === normalizedEmail)) return false
-
-		pendingRequests.value.push({
-			id: Date.now(),
-			name: name.trim() || normalizedEmail.split('@')[0],
-			email: normalizedEmail,
-			requestedAt: new Date().toLocaleDateString('pt-BR')
-		})
-		persistRequests()
-		return true
+	function clearAuthState() {
+		localStorage.removeItem('atlaslab-token')
+		localStorage.removeItem('atlaslab-refresh')
+		currentUser.value = null
 	}
 
-	function removeRequest(requestId) {
-		const requestIndex = pendingRequests.value.findIndex(({ id }) => id === requestId)
-		if (requestIndex === -1) return
+	async function loadCurrentUser() {
+		if (!localStorage.getItem('atlaslab-token')) {
+			clearAuthState()
+			return null
+		}
 
-		pendingRequests.value.splice(requestIndex, 1)
-		persistRequests()
+		if (!currentUserPromise) {
+			currentUserPromise = currentUserRequest()
+				.then((user) => {
+					currentUser.value = user
+					return user
+				})
+				.catch((error) => {
+					if (error.status === 401) clearAuthState()
+					throw error
+				})
+				.finally(() => {
+					currentUserPromise = null
+				})
+		}
+
+		return currentUserPromise
 	}
 
-	function approveRequest(requestId) {
-		const requestIndex = pendingRequests.value.findIndex(({ id }) => id === requestId)
-		if (requestIndex === -1) return
-
-		const [request] = pendingRequests.value.splice(requestIndex, 1)
-		approvedUsers.value.push(request)
-		persistRequests()
-		persistApprovedUsers()
+	async function loadAdminData() {
+		const [loadedUsers, loadedRequests] = await Promise.all([
+			listUsersRequest(),
+			listRequestsRequest()
+		])
+		users.value = loadedUsers.results || loadedUsers
+		pendingRequests.value = loadedRequests.map((request) => ({
+			id: request.id,
+			name: request.nome,
+			email: request.email,
+			requestedAt: new Date(request.criada_em).toLocaleDateString('pt-BR')
+		}))
 	}
 
-	function isApproved(email) {
-		return approvedUsers.value.some((user) => user.email === email.trim().toLowerCase())
+	async function approveRequest(requestId) {
+		await approveRequestRequest(requestId)
+		await loadAdminData()
+	}
+
+	async function removeRequest(requestId) {
+		await rejectRequestRequest(requestId)
+		await loadAdminData()
+	}
+
+	async function updateUserRole(userId, cargo) {
+		await updateUserRoleRequest(userId, cargo)
+		await loadAdminData()
+	}
+
+	async function removeUser(userId) {
+		await deleteUserRequest(userId)
+		await loadAdminData()
+	}
+
+	async function logout() {
+		try {
+			if (localStorage.getItem('atlaslab-token')) await logoutRequest()
+		} catch (error) {
+			console.error('Erro ao revogar a sessão no servidor:', error)
+		} finally {
+			clearAuthState()
+		}
 	}
 
 	return {
@@ -90,9 +127,15 @@ export const useAuthStore = defineStore('auth', () => {
 		pendingRequests,
 		approvedUsers,
 		requestCount,
-		requestEntry,
-		removeRequest,
+		login,
+		register,
+		loadCurrentUser,
+		loadAdminData,
 		approveRequest,
-		isApproved
+		removeRequest,
+		updateUserRole,
+		removeUser,
+		users,
+		logout
 	}
 })

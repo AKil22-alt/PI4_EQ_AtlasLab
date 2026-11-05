@@ -1,7 +1,6 @@
 <script setup>
 import { Eye, Pencil, Trash2 } from 'lucide-vue-next';
-import { ref } from 'vue';
-import ConfirmModal from './ConfirmModal.vue';
+import { computed } from 'vue';
 
 const props = defineProps({
     columns: {
@@ -24,44 +23,28 @@ const props = defineProps({
 
 const emit = defineEmits(['row-action'])
 
-const showConfirmation = ref(false)
-const pendingAction = ref(null)
-
-const confirmationCopy = {
-    delete: {
-        title: 'Confirmar exclusão',
-        message: 'Tem certeza que deseja excluir este item? Essa ação não pode ser revertida.',
-        confirmText: 'Excluir'
-    }
-}
+const dataColumns = computed(() => props.columns.filter((column) => column.type !== 'actions' && column.key !== 'actions'))
+const hasActionColumn = computed(() => props.columns.some((column) => column.type === 'actions' || column.key === 'actions'))
+const actionButtons = [
+    { action: 'view', label: 'Visualizar item', icon: Eye },
+    { action: 'edit', label: 'Editar item', icon: Pencil },
+    { action: 'delete', label: 'Excluir item', icon: Trash2 }
+]
 
 function handleAction(action, row) {
-    if (action !== 'delete') {
-        emit('row-action', { action, row })
-        return
-    }
-
-    pendingAction.value = { action, row }
-    showConfirmation.value = true
-}
-
-function confirmAction() {
-    if (!pendingAction.value) return
-
-    emit('row-action', pendingAction.value)
-    pendingAction.value = null
+    emit('row-action', { action, row })
 }
 
 </script>
 <template>
-    <div class="overflow-hidden rounded-xl bg-bg-red">
-        <table class="w-full table-fixed text-left text-xs">
+    <div class="hidden min-w-0 overflow-hidden rounded-xl bg-bg-red md:block">
+        <table class="w-full min-w-0 table-fixed text-left text-xs">
             <thead class="bg-red-1 text-white">
                 <tr>
                     <th
                         v-for="column in columns"
                         :key="column.key"
-                        class="px-3 py-2 font-semibold"
+                        class="min-w-0 break-words px-3 py-2 font-semibold"
                         :style="{ width: column.width }"
                     >
                         {{ column.label }}
@@ -73,62 +56,73 @@ function confirmAction() {
                     <td
                         v-for="column in columns"
                         :key="column.key"
-                        class="px-3 py-3 text-text-secondary"
+                        class="min-w-0 break-words px-2 py-3 text-text-secondary"
                         :style="{ width: column.width }"
                     >
-                        <div v-if="column.type === 'actions' || column.key === 'actions'" class="flex items-center gap-1">
+                        <div v-if="column.type === 'actions' || column.key === 'actions'" class="flex min-w-0 flex-nowrap items-center gap-1">
                             <button
-                                v-if="props.actions.includes('view')"
+                                v-for="button in actionButtons"
+                                v-show="props.actions.includes(button.action)"
+                                :key="button.action"
                                 type="button"
-                                aria-label="Visualizar item"
-                                title="Visualizar item"
-                                class="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-1 transition hover:bg-red-2"
-                                @click="emit('row-action', { action: 'view', row })"
+                                :aria-label="button.label"
+                                :title="button.label"
+                                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-red-1 transition hover:bg-red-2"
+                                @click="handleAction(button.action, row)"
                             >
-                                <Eye :size="16" />
-                            </button>
-
-                            <button
-                                v-if="props.actions.includes('edit')"
-                                type="button"
-                                aria-label="Editar item"
-                                title="Editar item"
-                                class="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-1 transition hover:bg-red-2"
-                                @click="handleAction('edit', row)"
-                            >
-                                <Pencil :size="16" />
-                            </button>
-
-                            <button
-                                v-if="props.actions.includes('delete')"
-                                type="button"
-                                aria-label="Excluir item"
-                                title="Excluir item"
-                                class="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-red-1 transition hover:bg-red-2"
-                                @click="handleAction('delete', row)"
-                            >
-                                <Trash2 :size="16" />
+                                <component :is="button.icon" :size="16" />
                             </button>
                         </div>
 
                         <span
                             v-else-if="column.type === 'status'"
-                            class="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium text-emerald-600"
+                            class="inline-flex min-w-0 max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium text-emerald-600"
                         >
                             {{ row[column.key] }}
                         </span>
-                        <span v-else>{{ row[column.key] }}</span>
+                        <span v-else class="min-w-0 break-words">{{ row[column.key] }}</span>
                     </td>
                 </tr>
             </tbody>
         </table>
     </div>
 
-    <ConfirmModal
-        v-model="showConfirmation"
-        :title="pendingAction ? confirmationCopy[pendingAction.action].title : ''"
-        :message="pendingAction ? confirmationCopy[pendingAction.action].message : ''"
-        :confirm-text="pendingAction ? confirmationCopy[pendingAction.action].confirmText : 'Confirmar'"
-        @confirm="confirmAction"
-    />
+    <div class="space-y-3 rounded-xl bg-bg-red p-3 md:hidden">
+        <article
+            v-for="row in rows"
+            :key="row[rowKey]"
+            class="space-y-3 rounded-lg bg-white p-3 text-xs"
+        >
+            <dl class="space-y-2">
+                <div v-for="column in dataColumns" :key="column.key" class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] gap-3">
+                    <dt class="font-semibold text-text-primary">{{ column.label }}</dt>
+                    <dd class="min-w-0 break-words text-right text-text-secondary">
+                        <span
+                            v-if="column.type === 'status'"
+                            class="inline-flex min-w-0 max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-medium text-emerald-600"
+                        >
+                            {{ row[column.key] }}
+                        </span>
+                        <span v-else class="min-w-0 break-words">{{ row[column.key] }}</span>
+                    </dd>
+                </div>
+            </dl>
+
+            <div v-if="hasActionColumn" class="flex flex-wrap justify-end gap-2 border-t border-red-1/10 pt-3">
+                <button
+                    v-for="button in actionButtons"
+                    v-show="props.actions.includes(button.action)"
+                    :key="button.action"
+                    type="button"
+                    :aria-label="button.label"
+                    :title="button.label"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-red text-red-1 transition hover:bg-red-2"
+                    @click="handleAction(button.action, row)"
+                >
+                    <component :is="button.icon" :size="16" />
+                </button>
+            </div>
+        </article>
+    </div>
+
 </template>
