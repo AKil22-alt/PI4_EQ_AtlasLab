@@ -151,12 +151,27 @@ export function updateAssetRequest(assetId, asset) {
     })
 }
 
-export function deleteAssetRequest(assetId) {
-    return apiRequest(`/ativos/${assetId}/`, {
-        method: 'DELETE'
+export function listAssetGroupsRequest() {
+    return apiRequest('/grupos/')
+}
+
+export function createAssetGroupRequest(group) {
+    return apiRequest('/grupos/', {
+        method: 'POST',
+        body: JSON.stringify(group)
     })
 }
 
-export function listCategoriesRequest() {
-    return apiRequest('/categorias/')
+export function updateAssetGroupRequest(groupId, group) {
+    return apiRequest(`/grupos/${groupId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(group)
+    })
+}
+
+export function moveAssetRequest(assetId, movement) {
+    return apiRequest(`/ativos/${assetId}/movimentar/`, {
+        method: 'POST',
+        body: JSON.stringify(movement)
+    })
 }

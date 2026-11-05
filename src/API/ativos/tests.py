@@ -174,6 +174,51 @@ class ApiViewsTests(TestCase):
         self.assertEqual(log.acao, "MOVIMENTAR")
         self.assertEqual(log.detalhes["local_anterior"], "Laboratório 1")
 
+    def test_asset_crud_uses_qr_group_location_and_room_fields(self):
+        client = self.authenticate(self.admin)
+        sala = SalaLab.objects.create(
+            nome="Laboratório de testes",
+            numero_ta=101,
+            localizacao="B-101",
+        )
+        created = client.post(
+            "/api/ativos/",
+            {
+                "nome": "Projetor de testes",
+                "local_origem": "Almoxarifado",
+                "local_atual": "Laboratório B-101",
+                "grupo": self.grupo.pk,
+                "sala": sala.pk,
+                "descricao": "Projetor para testes da API.",
+                "status": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertIn("id_ativos", created.data)
+        self.assertTrue(created.data["qr_code"].startswith("ATLASLAB-"))
+        self.assertEqual(created.data["grupo"], self.grupo.pk)
+        self.assertEqual(created.data["grupo_detalhes"]["nome"], self.grupo.nome)
+        self.assertEqual(created.data["sala"], sala.pk)
+        self.assertEqual(created.data["local_origem"], "Almoxarifado")
+
+        listed = client.get("/api/ativos/")
+        self.assertEqual(listed.status_code, 200)
+        self.assertIn(created.data["id_ativos"], {asset["id_ativos"] for asset in listed.data["results"]})
+
+        updated = client.patch(
+            f"/api/ativos/{created.data['id_ativos']}/",
+            {"local_atual": "Laboratório B-102", "status": False},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["local_atual"], "Laboratório B-102")
+        self.assertFalse(updated.data["status"])
+
+        deleted = client.delete(f"/api/ativos/{created.data['id_ativos']}/")
+        self.assertEqual(deleted.status_code, 405)
+
     def test_laboratory_crud_uses_paginated_salas_contract(self):
         client = self.authenticate(self.admin)
         created = client.post(
@@ -209,6 +254,31 @@ class ApiViewsTests(TestCase):
         deleted = client.delete(f"/api/salas/{created.data['id_sala']}/")
         self.assertEqual(deleted.status_code, 204)
         self.assertFalse(SalaLab.objects.filter(pk=created.data["id_sala"]).exists())
+
+    def test_asset_group_can_be_created_and_updated_by_staff_only(self):
+        client = self.authenticate(self.admin)
+        created = client.post(
+            "/api/grupos/",
+            {"nome": "Equipamentos", "numero_ta": 2, "tipo": "Equipamento", "setor": "TI"},
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data["nome"], "Equipamentos")
+        updated = client.patch(
+            f"/api/grupos/{created.data['id_grupo_a']}/",
+            {"setor": "Infraestrutura"},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.data["setor"], "Infraestrutura")
+
+        denied = self.authenticate(self.colaborador).post(
+            "/api/grupos/",
+            {"nome": "Outro grupo", "numero_ta": 3, "tipo": "Equipamento", "setor": "TI"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 403)
 
     def test_sala_responsible_options_are_available_to_admin_and_technician_only(self):
         technician = Usuario.objects.create(
