@@ -5,9 +5,11 @@ import Button from '../components/Button.vue'
 import Searchbar from '../components/Searchbar.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { Check, Pencil, Play, Plus, X } from 'lucide-vue-next'
+import { ArrowLeft, Check, Pencil, Play, Plus, X } from 'lucide-vue-next'
+import { useAuthStore } from '../store/auth'
 import {
 	createServiceOrderRequest,
+	deleteServiceOrderRequest,
 	listAssetGroupsRequest,
 	listAssetsRequest,
 	listLaboratoriesRequest,
@@ -43,6 +45,8 @@ const statusLabels = {
 	CONCLUIDA: 'Concluído',
 	CANCELADA: 'Cancelado'
 }
+const authStore = useAuthStore()
+const canManageOrders = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
 
 function mapServiceOrder(order) {
 	const assets = order.ativos_detalhes || []
@@ -57,6 +61,7 @@ function mapServiceOrder(order) {
 		title: order.titulo,
 		labId: rooms[0]?.id_sala || '',
 		assetId: assets[0]?.id_ativos || '',
+		sectorValue: assets[0]?.grupo_detalhes?.setor || '',
 		statusValue: order.status,
 		openingDate: formatDate(order.data_hora?.slice(0, 10)),
 		conclusionDate: order.data_termino ? formatDate(order.data_termino) : '',
@@ -118,6 +123,7 @@ const showConfirmation = ref(false)
 const confirmationAction = ref(null)
 const statusActionError = ref('')
 const isUpdatingStatus = ref(false)
+const actionError = ref('')
 const searchText = ref('')
 const filters = reactive({ number: '', sector: '', lab: '', status: '' })
 const orderForm = reactive({
@@ -216,7 +222,7 @@ function openEditForm(order) {
 	orderForm.openingDate = toInputDate(order.openingDate)
 	orderForm.conclusionDate = toInputDate(order.conclusionDate)
 	orderForm.title = order.title || ''
-	orderForm.sector = order.sector
+	orderForm.sector = order.sectorValue || order.sector
 	orderForm.lab = order.labId ? String(order.labId) : ''
 	orderForm.asset = order.assetId ? String(order.assetId) : ''
 	orderForm.status = order.statusValue || 'ABERTA'
@@ -225,17 +231,42 @@ function openEditForm(order) {
 }
 
 function createOrder() {
+	if (!orderForm.title.trim() || !orderForm.openingDate || !orderForm.description.trim() || !orderForm.sector || !orderForm.lab || !orderForm.asset) {
+		formError.value = 'Preencha título, início, descrição, setor, ativo e laboratório.'
+		return
+	}
 	if (isEditing.value) {
 		requestConfirmation('save')
 		return
 	}
 
-	if (!orderForm.title.trim() || !orderForm.openingDate || !orderForm.description.trim() || !orderForm.sector || !orderForm.lab || !orderForm.asset) {
-		formError.value = 'Preencha título, início, descrição, setor, ativo e laboratório.'
-		return
-	}
-
 	return submitNewOrder()
+}
+
+async function submitOrderChanges() {
+	isSaving.value = true
+	formError.value = ''
+
+	try {
+		const updatedOrder = await updateServiceOrderRequest(editingOrderId.value, {
+			titulo: orderForm.title.trim(),
+			descricao: orderForm.description.trim(),
+			data_termino: orderForm.conclusionDate || null,
+			status: orderForm.status,
+			sala_ids: [Number(orderForm.lab)],
+			ativo_ids: [Number(orderForm.asset)]
+		})
+		const updatedRow = mapServiceOrder(updatedOrder)
+		const rowIndex = rows.findIndex((row) => row.id === editingOrderId.value)
+		if (rowIndex !== -1) rows.splice(rowIndex, 1, updatedRow)
+		showCreateModal.value = false
+		editingOrderId.value = null
+		resetOrderForm()
+	} catch (error) {
+		formError.value = error.message || 'Não foi possível salvar as alterações da ordem.'
+	} finally {
+		isSaving.value = false
+	}
 }
 
 async function submitNewOrder() {
@@ -274,29 +305,39 @@ function requestConfirmation(action) {
 	showConfirmation.value = true
 }
 
+function requestDeleteOrder(order) {
+	selectedOrder.value = order
+	actionError.value = ''
+	requestConfirmation('delete')
+}
+
 async function confirmOrderAction() {
-	if (confirmationAction.value === 'save') {
-		const order = rows.find((row) => row.id === editingOrderId.value)
+	const action = confirmationAction.value
 
-		if (order) {
-			Object.assign(order, {
-				title: orderForm.title.trim(),
-				sector: orderForm.sector,
-				status: statusLabels[orderForm.status] || orderForm.status,
-				description: orderForm.description.trim()
-			})
+	if (action === 'save') {
+		await submitOrderChanges()
+		confirmationAction.value = null
+		return
+	}
+
+	if (action === 'delete' && selectedOrder.value) {
+		try {
+			await deleteServiceOrderRequest(selectedOrder.value.id)
+			const rowIndex = rows.findIndex((row) => row.id === selectedOrder.value.id)
+			if (rowIndex !== -1) rows.splice(rowIndex, 1)
+			selectedOrder.value = null
+		} catch (error) {
+			actionError.value = error.message || 'Não foi possível excluir a ordem de serviço.'
 		}
-
-		showCreateModal.value = false
-		editingOrderId.value = null
-		resetOrderForm()
+		confirmationAction.value = null
+		return
 	}
 
 	const nextStatus = {
 		start: 'EM_ANDAMENTO',
 		finish: 'CONCLUIDA',
 		cancel: 'CANCELADA'
-	}[confirmationAction.value]
+	}[action]
 
 	if (nextStatus && selectedOrder.value) {
 		isUpdatingStatus.value = true
@@ -324,6 +365,8 @@ function handleRowAction({ action, row }) {
 		showDetailsModal.value = true
 	} else if (action === 'edit') {
 		openEditForm(row)
+	} else if (action === 'delete') {
+		requestDeleteOrder(row)
 	}
 }
 </script>
@@ -402,19 +445,27 @@ function handleRowAction({ action, row }) {
 			<p v-else-if="filteredRows.length === 0" class="py-8 text-center text-sm text-text-secondary">
 				Nenhuma ordem de serviço encontrada.
 			</p>
+			<p v-if="actionError" class="text-sm text-red-primary" role="alert">{{ actionError }}</p>
 			<Table
-				v-else
+				v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0"
 				:columns="columns"
 				:rows="filteredRows"
 				row-key="id"
+				:actions="canManageOrders ? ['view', 'edit', 'delete'] : ['view']"
 				@row-action="handleRowAction"
 			/>
 			</div>
 
 			<div v-else class="space-y-6 rounded-lg bg-bg px-8 py-2">
-				<h2 class="text-lg font-semibold text-text-primary">
-					{{ isEditing ? 'Editar Ordem de Serviço' : 'Criar Ordem de Serviço' }}
-				</h2>
+				<div class="-mt-2 space-y-4">
+					<button type="button" class="inline-flex items-center gap-1 text-sm font-medium text-red-primary hover:underline" @click="cancelForm">
+						<ArrowLeft :size="16" />
+						Voltar
+					</button>
+					<h2 class="text-lg font-semibold text-text-primary">
+						{{ isEditing ? 'Editar Ordem de Serviço' : 'Criar Ordem de Serviço' }}
+					</h2>
+				</div>
 
 				<div v-if="isLoadingOptions" class="py-2 text-sm text-text-secondary" role="status">
 					Carregando laboratórios e setores...
@@ -541,7 +592,7 @@ function handleRowAction({ action, row }) {
 					{{ statusActionError }}
 				</p>
 
-				<template #footer v-if="['ABERTA', 'EM_ANDAMENTO'].includes(selectedOrder?.statusValue)">
+				<template #footer v-if="canManageOrders && ['ABERTA', 'EM_ANDAMENTO'].includes(selectedOrder?.statusValue)">
 					<div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<Button variant="outline" size="sm" class="self-start" @click="openEditForm(selectedOrder)">
 							<Pencil :size="16" />
@@ -579,19 +630,22 @@ function handleRowAction({ action, row }) {
 					start: 'Iniciar OS',
 					finish: 'Finalizar OS',
 					cancel: 'Cancelar OS',
-					save: 'Salvar alterações'
+					save: 'Salvar alterações',
+					delete: 'Excluir OS'
 				}[confirmationAction]"
 				:message="{
 					start: 'Deseja iniciar esta Ordem de Serviço?',
 					finish: 'Deseja finalizar esta Ordem de Serviço?',
 					cancel: 'Deseja cancelar esta Ordem de Serviço?',
-					save: 'Tem certeza que deseja salvar as alterações desta Ordem de Serviço?'
+					save: 'Tem certeza que deseja salvar as alterações desta Ordem de Serviço?',
+					delete: 'Tem certeza que deseja excluir esta Ordem de Serviço? Essa ação não pode ser revertida.'
 				}[confirmationAction]"
 				:confirm-text="{
 					start: 'Iniciar',
 					finish: 'Finalizar',
 					cancel: 'Cancelar ordem',
-					save: 'Salvar'
+					save: 'Salvar',
+					delete: 'Excluir'
 				}[confirmationAction]"
 				@confirm="confirmOrderAction"
 			/>

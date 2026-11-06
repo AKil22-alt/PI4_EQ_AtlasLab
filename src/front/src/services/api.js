@@ -155,6 +155,12 @@ export function updateServiceOrderRequest(serviceOrderId, serviceOrder) {
     })
 }
 
+export function deleteServiceOrderRequest(serviceOrderId) {
+    return apiRequest(`/ordens-servico/${serviceOrderId}/`, {
+        method: 'DELETE'
+    })
+}
+
 export function createAssetRequest(asset) {
     return apiRequest('/ativos/', {
         method: 'POST',
