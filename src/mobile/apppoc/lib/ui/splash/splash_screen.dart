@@ -1,16 +1,25 @@
-import 'package:apppoc/screen/Home.dart';
+import 'package:apppoc/screen/login_screen.dart';
+import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  final ApiService? api;
+  const SplashScreen({super.key, this.api});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  late final ApiService _api;
   bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = widget.api ?? ApiService();
+  }
 
   void _onScreenTapped() {
     if (!_isExpanded) {
@@ -136,7 +145,7 @@ class _SplashScreenState extends State<SplashScreen> {
                                               context,
                                               MaterialPageRoute(
                                                 builder: (context) =>
-                                                    const TelaHome(),
+                                                    LoginScreen(api: _api),
                                               ),
                                             );
                                           },
