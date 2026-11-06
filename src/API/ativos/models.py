@@ -126,6 +126,7 @@ class OrdemServico(models.Model):
     descricao = models.TextField()
     titulo = models.CharField(max_length=100)
     data_hora = models.DateTimeField(default=timezone.now)
+    data_termino = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ABERTA)
     usuarios = models.ManyToManyField(Usuario, through="OSUser", related_name="ordens_servico")
     salas = models.ManyToManyField(SalaLab, through="OSSalaLab", related_name="ordens_servico")

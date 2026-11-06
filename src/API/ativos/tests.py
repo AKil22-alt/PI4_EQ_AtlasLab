@@ -151,6 +151,8 @@ class ApiViewsTests(TestCase):
             {
                 "titulo": "Inspecionar equipamento",
                 "descricao": "Verificar o notebook do laboratório.",
+                "data_hora": "2026-11-06T09:00:00-03:00",
+                "data_termino": "2026-11-08",
                 "usuario_ids": [],
             },
             format="json",
@@ -159,6 +161,7 @@ class ApiViewsTests(TestCase):
         self.assertEqual(response.status_code, 201)
         ordem = OrdemServico.objects.get(pk=response.data["id_ordem"])
         self.assertEqual(list(ordem.usuarios.all()), [self.colaborador])
+        self.assertEqual(response.data["data_termino"], "2026-11-08")
 
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)

@@ -163,7 +163,7 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrdemServico
         fields = [
-            "id_ordem", "titulo", "descricao", "data_hora", "status",
+            "id_ordem", "titulo", "descricao", "data_hora", "data_termino", "status",
             "usuario_ids", "sala_ids", "ativo_ids", "manutencao_ids",
             "usuarios_detalhes", "salas_detalhes", "ativos_detalhes", "manutencoes_detalhes",
         ]

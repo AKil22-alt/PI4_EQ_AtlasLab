@@ -137,6 +137,24 @@ export function listAssetsRequest() {
     return apiRequest('/ativos/')
 }
 
+export function listServiceOrdersRequest() {
+    return apiRequest('/ordens-servico/')
+}
+
+export function createServiceOrderRequest(serviceOrder) {
+    return apiRequest('/ordens-servico/', {
+        method: 'POST',
+        body: JSON.stringify(serviceOrder)
+    })
+}
+
+export function updateServiceOrderRequest(serviceOrderId, serviceOrder) {
+    return apiRequest(`/ordens-servico/${serviceOrderId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(serviceOrder)
+    })
+}
+
 export function createAssetRequest(asset) {
     return apiRequest('/ativos/', {
         method: 'POST',

@@ -1,11 +1,19 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import Table from '../components/Table.vue'
 import Button from '../components/Button.vue'
 import Searchbar from '../components/Searchbar.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { Pencil, Play, Plus } from 'lucide-vue-next'
+import { Check, Pencil, Play, Plus, X } from 'lucide-vue-next'
+import {
+	createServiceOrderRequest,
+	listAssetGroupsRequest,
+	listAssetsRequest,
+	listLaboratoriesRequest,
+	listServiceOrdersRequest,
+	updateServiceOrderRequest
+} from '../services/api'
 
 const columns = [
   { key: 'number', label: 'Nº da OS', width: '10%' },
@@ -18,69 +26,102 @@ const columns = [
 	{ key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
-const rows = reactive([
-	{
-		id: 1,
-		number: '00001',
-		openingDate: '11/09/2026',
-		conclusionDate: '15/09/2026',
-		sector: 'Mecânica',
-		lab: 'B-101',
-		status: 'Aberto',
-		description: 'Manutenção preventiva da centrífuga CT-02.'
-	},
-	{
-		id: 2,
-		number: '00002',
-		openingDate: '11/09/2026',
-		conclusionDate: '15/09/2026',
-		sector: 'Mecânica',
-		lab: 'B-101',
-		status: 'Aberto',
-		description: 'Inspeção e calibração dos equipamentos.'
-	},
-	{
-		id: 3,
-		number: '00003',
-		openingDate: '12/09/2026',
-		conclusionDate: '16/09/2026',
-		sector: 'Elétrica',
-		lab: 'B-102',
-		status: 'Concluído',
-		description: 'Revisão preventiva da bancada elétrica.'
-	},
-	{
-		id: 4,
-		number: '00004',
-		openingDate: '12/09/2026',
-		conclusionDate: '18/09/2026',
-		sector: 'Mecânica',
-		lab: 'B-101',
-		status: 'Aberto',
-		description: 'Manutenção preventiva da centrífuga CT-02.'
-	},
-	{
-		id: 5,
-		number: '00005',
-		openingDate: '13/09/2026',
-		conclusionDate: '19/09/2026',
-		sector: 'Automação',
-		lab: 'B-103',
-		status: 'Aberto',
-		description: 'Ajuste dos sensores do laboratório.'
-	}
-])
+const rows = reactive([])
+const laboratories = reactive([])
+const assetGroups = reactive([])
+const assets = reactive([])
+const isLoadingOrders = ref(false)
+const isLoadingOptions = ref(false)
+const isSaving = ref(false)
+const ordersError = ref('')
+const formError = ref('')
+const optionsError = ref('')
 
+const statusLabels = {
+	ABERTA: 'Aberto',
+	EM_ANDAMENTO: 'Em andamento',
+	CONCLUIDA: 'Concluído',
+	CANCELADA: 'Cancelado'
+}
+
+function mapServiceOrder(order) {
+	const assets = order.ativos_detalhes || []
+	const rooms = order.salas_detalhes || []
+	const sectors = assets
+		.map((asset) => asset.grupo_detalhes?.setor)
+		.filter(Boolean)
+
+	return {
+		id: order.id_ordem,
+		number: String(order.id_ordem).padStart(5, '0'),
+		title: order.titulo,
+		labId: rooms[0]?.id_sala || '',
+		assetId: assets[0]?.id_ativos || '',
+		statusValue: order.status,
+		openingDate: formatDate(order.data_hora?.slice(0, 10)),
+		conclusionDate: order.data_termino ? formatDate(order.data_termino) : '',
+		sector: [...new Set(sectors)].join(', ') || '—',
+		lab: rooms.map((room) => room.localizacao || room.nome).join(', ') || '—',
+		status: statusLabels[order.status] || order.status,
+		description: order.descricao
+	}
+}
+
+async function loadOrders() {
+	isLoadingOrders.value = true
+	ordersError.value = ''
+
+	try {
+		const response = await listServiceOrdersRequest()
+		const orders = Array.isArray(response) ? response : response.results || []
+		rows.splice(0, rows.length, ...orders.map(mapServiceOrder))
+	} catch (error) {
+		ordersError.value = error.message || 'Não foi possível carregar as ordens de serviço.'
+	} finally {
+		isLoadingOrders.value = false
+	}
+}
+
+function responseItems(response) {
+	return Array.isArray(response) ? response : response.results || []
+}
+
+async function loadFormOptions() {
+	isLoadingOptions.value = true
+	optionsError.value = ''
+
+	try {
+		const [labResponse, groupResponse, assetResponse] = await Promise.all([
+			listLaboratoriesRequest(),
+			listAssetGroupsRequest(),
+			listAssetsRequest()
+		])
+		laboratories.splice(0, laboratories.length, ...responseItems(labResponse))
+		assetGroups.splice(0, assetGroups.length, ...responseItems(groupResponse))
+		assets.splice(0, assets.length, ...responseItems(assetResponse))
+	} catch (error) {
+		optionsError.value = error.message || 'Não foi possível carregar laboratórios, setores e ativos.'
+	} finally {
+		isLoadingOptions.value = false
+	}
+}
+
+onMounted(() => {
+	loadOrders()
+	loadFormOptions()
+})
 const showCreateModal = ref(false)
 const showDetailsModal = ref(false)
 const selectedOrder = ref(null)
 const editingOrderId = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
+const statusActionError = ref('')
+const isUpdatingStatus = ref(false)
 const searchText = ref('')
 const filters = reactive({ number: '', sector: '', lab: '', status: '' })
 const orderForm = reactive({
-	number: '', openingDate: '', conclusionDate: '', sector: '', lab: '', status: 'Aberto', description: ''
+	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', status: 'ABERTA', description: ''
 })
 
 const isEditing = computed(() => editingOrderId.value !== null)
@@ -89,6 +130,10 @@ const numberOptions = computed(() => [...new Set(rows.map((row) => row.number))]
 const sectorOptions = computed(() => [...new Set(rows.map((row) => row.sector))])
 const labOptions = computed(() => [...new Set(rows.map((row) => row.lab))])
 const statusOptions = computed(() => [...new Set(rows.map((row) => row.status))])
+const formSectorOptions = computed(() => [...new Set(assetGroups.map((group) => group.setor).filter(Boolean))].sort())
+const formAssetOptions = computed(() => assets.filter((asset) =>
+	asset.status !== false && asset.grupo_detalhes?.setor === orderForm.sector
+))
 
 const filteredRows = computed(() => {
 	const query = searchText.value.trim().toLowerCase()
@@ -115,19 +160,20 @@ function resetOrderForm() {
 	orderForm.number = ''
 	orderForm.openingDate = ''
 	orderForm.conclusionDate = ''
+	orderForm.title = ''
 	orderForm.sector = ''
 	orderForm.lab = ''
-	orderForm.status = 'Aberto'
+	orderForm.asset = ''
+	orderForm.status = 'ABERTA'
 	orderForm.description = ''
+	formError.value = ''
 }
 
-function getNextOrderNumber() {
-	const highestNumber = rows.reduce((highest, row) => {
-		const currentNumber = Number.parseInt(row.number, 10)
-		return Number.isNaN(currentNumber) ? highest : Math.max(highest, currentNumber)
-	}, 0)
-
-	return String(highestNumber + 1).padStart(5, '0')
+function openCreateForm() {
+	resetOrderForm()
+	editingOrderId.value = null
+	orderForm.openingDate = getTodayInputValue()
+	showCreateModal.value = true
 }
 
 function getTodayInputValue() {
@@ -139,12 +185,13 @@ function getTodayInputValue() {
 	return `${year}-${month}-${day}`
 }
 
-function openCreateForm() {
-	resetOrderForm()
-	editingOrderId.value = null
-	orderForm.number = getNextOrderNumber()
-	orderForm.openingDate = getTodayInputValue()
-	showCreateModal.value = true
+function handleSectorChange() {
+	orderForm.asset = ''
+}
+
+function requestStatusAction(action) {
+	statusActionError.value = ''
+	requestConfirmation(action)
 }
 
 function formatDate(date) {
@@ -168,34 +215,52 @@ function openEditForm(order) {
 	orderForm.number = order.number
 	orderForm.openingDate = toInputDate(order.openingDate)
 	orderForm.conclusionDate = toInputDate(order.conclusionDate)
+	orderForm.title = order.title || ''
 	orderForm.sector = order.sector
-	orderForm.lab = order.lab
-	orderForm.status = order.status
+	orderForm.lab = order.labId ? String(order.labId) : ''
+	orderForm.asset = order.assetId ? String(order.assetId) : ''
+	orderForm.status = order.statusValue || 'ABERTA'
 	orderForm.description = order.description
 	showCreateModal.value = true
 }
 
 function createOrder() {
-	if (!orderForm.number.trim()) return
 	if (isEditing.value) {
 		requestConfirmation('save')
 		return
 	}
 
-	rows.push({
-		id: Date.now(),
-		number: orderForm.number.trim(),
-		openingDate: formatDate(orderForm.openingDate),
-		conclusionDate: formatDate(orderForm.conclusionDate),
-		sector: orderForm.sector,
-		lab: orderForm.lab,
-		status: orderForm.status,
-		description: orderForm.description.trim()
-	})
+	if (!orderForm.title.trim() || !orderForm.openingDate || !orderForm.description.trim() || !orderForm.sector || !orderForm.lab || !orderForm.asset) {
+		formError.value = 'Preencha título, início, descrição, setor, ativo e laboratório.'
+		return
+	}
 
-	showCreateModal.value = false
-	editingOrderId.value = null
-	resetOrderForm()
+	return submitNewOrder()
+}
+
+async function submitNewOrder() {
+	isSaving.value = true
+	formError.value = ''
+
+	try {
+		await createServiceOrderRequest({
+			titulo: orderForm.title.trim(),
+			descricao: orderForm.description.trim(),
+			data_hora: `${orderForm.openingDate}T00:00:00`,
+			data_termino: orderForm.conclusionDate || null,
+			status: orderForm.status,
+			sala_ids: [Number(orderForm.lab)],
+			ativo_ids: [Number(orderForm.asset)]
+		})
+		await loadOrders()
+		showCreateModal.value = false
+		editingOrderId.value = null
+		resetOrderForm()
+	} catch (error) {
+		formError.value = error.message || 'Não foi possível criar a ordem de serviço.'
+	} finally {
+		isSaving.value = false
+	}
 }
 
 function cancelForm() {
@@ -209,18 +274,15 @@ function requestConfirmation(action) {
 	showConfirmation.value = true
 }
 
-function confirmOrderAction() {
+async function confirmOrderAction() {
 	if (confirmationAction.value === 'save') {
 		const order = rows.find((row) => row.id === editingOrderId.value)
 
 		if (order) {
 			Object.assign(order, {
-				number: orderForm.number.trim(),
-				openingDate: formatDate(orderForm.openingDate),
-				conclusionDate: formatDate(orderForm.conclusionDate),
+				title: orderForm.title.trim(),
 				sector: orderForm.sector,
-				lab: orderForm.lab,
-				status: orderForm.status,
+				status: statusLabels[orderForm.status] || orderForm.status,
 				description: orderForm.description.trim()
 			})
 		}
@@ -230,9 +292,27 @@ function confirmOrderAction() {
 		resetOrderForm()
 	}
 
-	if (confirmationAction.value === 'finish' && selectedOrder.value) {
-		selectedOrder.value.status = 'Concluído'
-		showDetailsModal.value = false
+	const nextStatus = {
+		start: 'EM_ANDAMENTO',
+		finish: 'CONCLUIDA',
+		cancel: 'CANCELADA'
+	}[confirmationAction.value]
+
+	if (nextStatus && selectedOrder.value) {
+		isUpdatingStatus.value = true
+		statusActionError.value = ''
+
+		try {
+			const updatedOrder = await updateServiceOrderRequest(selectedOrder.value.id, { status: nextStatus })
+			const updatedRow = mapServiceOrder(updatedOrder)
+			const rowIndex = rows.findIndex((row) => row.id === selectedOrder.value.id)
+			if (rowIndex !== -1) rows.splice(rowIndex, 1, updatedRow)
+			selectedOrder.value = updatedRow
+		} catch (error) {
+			statusActionError.value = error.message || 'Não foi possível atualizar o status da ordem.'
+		} finally {
+			isUpdatingStatus.value = false
+		}
 	}
 
 	confirmationAction.value = null
@@ -312,7 +392,18 @@ function handleRowAction({ action, row }) {
 				</Button>
 			</div>
 
+			<p v-if="isLoadingOrders" class="py-8 text-center text-sm text-text-secondary" role="status">
+				Carregando ordens de serviço...
+			</p>
+			<div v-else-if="ordersError" class="space-y-3 py-8 text-center" role="alert">
+				<p class="text-sm text-red-primary">{{ ordersError }}</p>
+				<Button variant="outline" size="sm" @click="loadOrders">Tentar novamente</Button>
+			</div>
+			<p v-else-if="filteredRows.length === 0" class="py-8 text-center text-sm text-text-secondary">
+				Nenhuma ordem de serviço encontrada.
+			</p>
 			<Table
+				v-else
 				:columns="columns"
 				:rows="filteredRows"
 				row-key="id"
@@ -325,35 +416,65 @@ function handleRowAction({ action, row }) {
 					{{ isEditing ? 'Editar Ordem de Serviço' : 'Criar Ordem de Serviço' }}
 				</h2>
 
-				<div class="space-y-2">
+				<div v-if="isLoadingOptions" class="py-2 text-sm text-text-secondary" role="status">
+					Carregando laboratórios e setores...
+				</div>
+				<div v-if="optionsError" class="space-y-2" role="alert">
+					<p class="text-sm text-red-primary">{{ optionsError }}</p>
+					<Button variant="outline" size="sm" :disabled="isLoadingOptions" @click="loadFormOptions">
+						Tentar carregar opções novamente
+					</Button>
+				</div>
+
+				<div v-if="isEditing" class="space-y-2">
 					<label for="order-number" class="text-xs font-medium text-text-primary">Nº da OS <span class="text-red-primary">*</span></label>
-					<input id="order-number" v-model="orderForm.number" type="text" placeholder="00015" required disabled class="w-full cursor-not-allowed rounded-lg bg-gray-300 px-3 py-3 text-sm text-gray-600 outline-none" />
+					<input id="order-number" v-model="orderForm.number" type="text" required disabled class="w-full cursor-not-allowed rounded-lg bg-gray-300 px-3 py-3 text-sm text-gray-600 outline-none" />
 				</div>
 
 				<div class="grid grid-cols-1 gap-5 md:grid-cols-2">
 					<div class="space-y-2">
-						<label for="order-opening-date" class="text-xs font-medium text-text-primary">Data de abertura <span class="text-red-primary">*</span></label>
-						<input id="order-opening-date" v-model="orderForm.openingDate" type="date" disabled class="w-full cursor-not-allowed rounded-lg bg-gray-300 px-3 py-3 text-sm text-gray-600 outline-none" />
+						<label for="order-opening-date" class="text-xs font-medium text-text-primary">Data de início <span class="text-red-primary">*</span></label>
+						<input id="order-opening-date" v-model="orderForm.openingDate" type="date" required :disabled="isEditing" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600" />
 					</div>
 					<div class="space-y-2">
-						<label for="order-conclusion-date" class="text-xs font-medium text-text-primary">Data de conclusão</label>
+						<label for="order-conclusion-date" class="text-xs font-medium text-text-primary">Data de término</label>
 						<input id="order-conclusion-date" v-model="orderForm.conclusionDate" type="date" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
 					</div>
 				</div>
 
 				<div class="space-y-2">
+					<label for="order-title" class="text-xs font-medium text-text-primary">Título <span class="text-red-primary">*</span></label>
+					<input id="order-title" v-model="orderForm.title" type="text" maxlength="100" required placeholder="Ex.: Manutenção de equipamento" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+				</div>
+
+				<div class="space-y-2">
 					<label for="order-sector" class="text-xs font-medium text-text-primary">Setor <span class="text-red-primary">*</span></label>
-					<select id="order-sector" v-model="orderForm.sector" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+					<select id="order-sector" v-model="orderForm.sector" required :disabled="isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary" @change="handleSectorChange">
 						<option value="">Selecione</option>
-						<option v-for="sector in sectorOptions" :key="sector" :value="sector">{{ sector }}</option>
+						<option v-for="sector in formSectorOptions" :key="sector" :value="sector">{{ sector }}</option>
 					</select>
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-lab" class="text-xs font-medium text-text-primary">Laboratório</label>
-					<select id="order-lab" v-model="orderForm.lab" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+					<label for="order-asset" class="text-xs font-medium text-text-primary">Ativo do setor <span class="text-red-primary">*</span></label>
+					<select id="order-asset" v-model="orderForm.asset" required :disabled="!orderForm.sector || isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+						<option value="">{{ orderForm.sector ? 'Selecione um ativo' : 'Selecione primeiro um setor' }}</option>
+						<option v-for="asset in formAssetOptions" :key="asset.id_ativos" :value="String(asset.id_ativos)">
+							{{ asset.nome }}
+						</option>
+					</select>
+					<p v-if="orderForm.sector && !formAssetOptions.length && !isLoadingOptions" class="text-xs text-text-secondary">
+						Não há ativos ativos cadastrados neste setor.
+					</p>
+				</div>
+
+				<div class="space-y-2">
+					<label for="order-lab" class="text-xs font-medium text-text-primary">Laboratório <span class="text-red-primary">*</span></label>
+					<select id="order-lab" v-model="orderForm.lab" required :disabled="isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
 						<option value="">Selecione</option>
-						<option v-for="lab in labOptions" :key="lab" :value="lab">{{ lab }}</option>
+						<option v-for="lab in laboratories" :key="lab.id_sala" :value="String(lab.id_sala)">
+							{{ lab.localizacao }} - {{ lab.nome }}
+						</option>
 					</select>
 				</div>
 
@@ -361,8 +482,10 @@ function handleRowAction({ action, row }) {
 					<label for="order-status" class="text-xs font-medium text-text-primary">Status <span class="text-red-primary">*</span></label>
 					<select id="order-status" v-model="orderForm.status" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
 						<option value="">Selecione</option>
-						<option value="Aberto">Aberto</option>
-						<option value="Concluído">Concluído</option>
+						<option value="ABERTA">Aberta</option>
+						<option value="EM_ANDAMENTO">Em andamento</option>
+						<option value="CONCLUIDA">Concluída</option>
+						<option value="CANCELADA">Cancelada</option>
 					</select>
 				</div>
 
@@ -371,15 +494,17 @@ function handleRowAction({ action, row }) {
 					<textarea id="order-description" v-model="orderForm.description" rows="5" placeholder="Descreva com detalhes o serviço" class="w-full resize-none rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
 				</div>
 
+				<p v-if="formError" class="text-sm text-red-primary" role="alert">{{ formError }}</p>
+
 				<div class="flex items-center justify-between pt-8">
 					<Button variant="outline" @click="cancelForm">Cancelar</Button>
-					<Button variant="primary" @click="createOrder">
-						{{ isEditing ? 'Salvar' : 'Criar Ordem' }}
+					<Button variant="primary" :disabled="isSaving || isLoadingOptions || Boolean(optionsError)" @click="createOrder">
+						{{ isSaving ? 'Criando...' : isEditing ? 'Salvar' : 'Criar Ordem' }}
 					</Button>
 				</div>
 			</div>
 
-			<Modal v-model="showDetailsModal" title="Detalhes da OS" size="sm">
+			<Modal v-model="showDetailsModal" title="Detalhes da OS" size="md">
 				<div v-if="selectedOrder" class="space-y-5 border-t border-red-primary pt-4">
 					<dl class="space-y-4 text-sm">
 						<div class="flex items-start justify-between gap-6">
@@ -412,26 +537,62 @@ function handleRowAction({ action, row }) {
 						</div>
 					</dl>
 				</div>
+				<p v-if="statusActionError" class="mt-4 text-sm text-red-primary" role="alert">
+					{{ statusActionError }}
+				</p>
 
-				<template #footer>
-					<Button variant="outline" size="sm" @click="openEditForm(selectedOrder)">
-						<Pencil :size="16" />
-						Editar
-					</Button>
-					<Button variant="primary" size="sm" @click="requestConfirmation('finish')">
-						<Play :size="16" fill="currentColor" />
-						Finalizar
-					</Button>
+				<template #footer v-if="['ABERTA', 'EM_ANDAMENTO'].includes(selectedOrder?.statusValue)">
+					<div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<Button variant="outline" size="sm" class="self-start" @click="openEditForm(selectedOrder)">
+							<Pencil :size="16" />
+							Editar
+						</Button>
+						<div class="flex flex-wrap gap-2 sm:justify-end">
+						<Button
+							v-if="selectedOrder.statusValue === 'ABERTA'"
+							variant="primary"
+							size="sm"
+							:disabled="isUpdatingStatus"
+							@click="requestStatusAction('start')"
+						>
+							<Play :size="16" fill="currentColor" />
+							Iniciar
+						</Button>
+						<template v-else>
+							<Button variant="outline" size="sm" :disabled="isUpdatingStatus" @click="requestStatusAction('cancel')">
+								<X :size="16" />
+								Cancelar ordem
+							</Button>
+							<Button variant="primary" size="sm" :disabled="isUpdatingStatus" @click="requestStatusAction('finish')">
+								<Check :size="16" />
+								Finalizar
+							</Button>
+						</template>
+						</div>
+					</div>
 				</template>
 			</Modal>
 
 			<ConfirmModal
 				v-model="showConfirmation"
-				:title="confirmationAction === 'finish' ? 'Finalizar OS' : 'Salvar alterações'"
-				:message="confirmationAction === 'finish'
-					? 'Tem certeza que deseja finalizar essa Ordem de Serviço?'
-					: 'Tem certeza que deseja salvar as alterações desta Ordem de Serviço?'"
-				:confirm-text="confirmationAction === 'finish' ? 'Finalizar' : 'Salvar'"
+				:title="{
+					start: 'Iniciar OS',
+					finish: 'Finalizar OS',
+					cancel: 'Cancelar OS',
+					save: 'Salvar alterações'
+				}[confirmationAction]"
+				:message="{
+					start: 'Deseja iniciar esta Ordem de Serviço?',
+					finish: 'Deseja finalizar esta Ordem de Serviço?',
+					cancel: 'Deseja cancelar esta Ordem de Serviço?',
+					save: 'Tem certeza que deseja salvar as alterações desta Ordem de Serviço?'
+				}[confirmationAction]"
+				:confirm-text="{
+					start: 'Iniciar',
+					finish: 'Finalizar',
+					cancel: 'Cancelar ordem',
+					save: 'Salvar'
+				}[confirmationAction]"
 				@confirm="confirmOrderAction"
 			/>
 		</section>
