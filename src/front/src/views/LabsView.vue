@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   createLaboratoryRequest,
@@ -23,7 +23,7 @@ import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -255,8 +255,10 @@ const assetValidationMessage = ref('')
 const movementValidationMessage = ref('')
 const showLabDeletionErrorModal = ref(false)
 const labDeletionErrorMessage = ref('')
+const labDeletionDependencies = ref({ ativos: [], ordens_servico: [] })
 const showAssetDeletionErrorModal = ref(false)
 const assetDeletionErrorMessage = ref('')
+const assetDeletionDependencies = ref({ movimentacoes: [], ordens_servico: [] })
 
 const labForm = reactive({
   acronym: '',
@@ -294,6 +296,8 @@ const assetFilters = reactive({
   location: '',
   status: ''
 })
+const assetPageSize = ref(10)
+const assetCurrentPage = ref(1)
 
 const patrimonyOptions = computed(() => [...new Set(rows.map((row) => row.patrimony))])
 const nameOptions = computed(() => [...new Set(rows.map((row) => row.name))])
@@ -321,6 +325,22 @@ const filteredRows = computed(() => {
       && matchesLocation
       && matchesStatus
   })
+})
+const assetPageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / assetPageSize.value)))
+const paginatedRows = computed(() => {
+  const start = (assetCurrentPage.value - 1) * assetPageSize.value
+  return filteredRows.value.slice(start, start + assetPageSize.value)
+})
+const firstVisibleAsset = computed(() => filteredRows.value.length
+  ? (assetCurrentPage.value - 1) * assetPageSize.value + 1
+  : 0)
+const lastVisibleAsset = computed(() => Math.min(
+  assetCurrentPage.value * assetPageSize.value,
+  filteredRows.value.length
+))
+
+watch([filteredRows, assetPageSize], () => {
+  assetCurrentPage.value = 1
 })
 
 function clearAssetFilters() {
@@ -634,15 +654,48 @@ function requestConfirmation(action) {
 
 function requestLabDeletion(lab) {
   pendingLabId.value = lab.id
+  labDeletionErrorMessage.value = ''
+  labDeletionDependencies.value = { ativos: [], ordens_servico: [] }
   requestConfirmation('delete-lab')
 }
 
 function requestAssetDeletion(asset) {
   pendingAssetId.value = asset.id
+  assetDeletionDependencies.value = { movimentacoes: [], ordens_servico: [] }
+  assetDeletionErrorMessage.value = ''
   requestConfirmation('delete-asset')
 }
 
+async function deletePendingAsset(force = false) {
+  const assetId = pendingAssetId.value
+  if (!assetId) return
+
+  try {
+    await deleteAssetRequest(assetId, force)
+    const assetIndex = rows.findIndex((asset) => String(asset.id) === String(assetId))
+    if (assetIndex !== -1) rows.splice(assetIndex, 1)
+    if (String(selectedAsset.value?.id) === String(assetId)) {
+      selectedAsset.value = null
+      showDetailsModal.value = false
+    }
+    pendingAssetId.value = null
+    assetDeletionDependencies.value = { movimentacoes: [], ordens_servico: [] }
+    showAssetDeletionErrorModal.value = false
+    await loadMovementHistory()
+  } catch (error) {
+    assetDeletionErrorMessage.value = error.message || 'Não foi possível excluir este ativo.'
+    assetDeletionDependencies.value = error.data || { movimentacoes: [], ordens_servico: [] }
+    showAssetDeletionErrorModal.value = true
+  }
+}
+
+function forceDeletePendingAsset() {
+  return deletePendingAsset(true)
+}
+
 function goToAssetsFromLabDeletionError() {
+  const firstLinkedAsset = labDeletionDependencies.value.ativos[0]
+  if (firstLinkedAsset) assetSearchText.value = firstLinkedAsset.nome
   showLabDeletionErrorModal.value = false
   activeTab.value = 'assets'
 }
@@ -665,22 +718,7 @@ async function confirmAction() {
   }
 
   if (action === 'delete-asset') {
-    try {
-      await deleteAssetRequest(pendingAssetId.value)
-      const assetIndex = rows.findIndex(
-        (asset) => String(asset.id) === String(pendingAssetId.value)
-      )
-      if (assetIndex !== -1) rows.splice(assetIndex, 1)
-      if (String(selectedAsset.value?.id) === String(pendingAssetId.value)) {
-        selectedAsset.value = null
-        showDetailsModal.value = false
-      }
-      await loadMovementHistory()
-      pendingAssetId.value = null
-    } catch (error) {
-      assetDeletionErrorMessage.value = error.message || 'Não foi possível excluir este ativo.'
-      showAssetDeletionErrorModal.value = true
-    }
+    await deletePendingAsset()
   }
 
   if (action === 'delete-lab') {
@@ -697,8 +735,8 @@ async function confirmAction() {
 
       pendingLabId.value = null
     } catch (error) {
-      console.error('Erro ao excluir laboratório:', error)
-      labDeletionErrorMessage.value = error.message
+      labDeletionErrorMessage.value = error.message || 'Não foi possível excluir o laboratório.'
+      labDeletionDependencies.value = error.data || { ativos: [], ordens_servico: [] }
       showLabDeletionErrorModal.value = true
     }
   }
@@ -1089,8 +1127,41 @@ function handleRowAction({ action, row }) {
         </Button>
       </div>
 
-      <Table :columns="columns" :rows="filteredRows" row-key="id"
+      <Table :columns="columns" :rows="paginatedRows" row-key="id"
         :actions="canManageAssets ? ['view', 'edit', 'delete'] : ['view']" @row-action="handleRowAction" />
+
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-text-secondary" aria-live="polite">
+          Mostrando {{ firstVisibleAsset }}–{{ lastVisibleAsset }} de {{ filteredRows.length }} ativos
+        </p>
+        <div class="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
+          <label class="flex items-center gap-2 text-sm text-text-secondary">
+            Ativos por página
+            <select v-model.number="assetPageSize"
+              class="rounded-lg bg-white px-2 py-2 text-sm text-text-primary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+              <option :value="5">5</option>
+              <option :value="10">10</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" aria-label="Página anterior" title="Página anterior"
+              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="assetCurrentPage === 1" @click="assetCurrentPage -= 1">
+              <ArrowLeft :size="16" />
+            </button>
+            <span class="min-w-20 text-center text-sm text-text-secondary">
+              {{ assetCurrentPage }} / {{ assetPageCount }}
+            </span>
+            <button type="button" aria-label="Próxima página" title="Próxima página"
+              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="assetCurrentPage >= assetPageCount" @click="assetCurrentPage += 1">
+              <ArrowRight :size="16" />
+            </button>
+          </div>
+        </div>
+      </div>
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
@@ -1259,10 +1330,38 @@ function handleRowAction({ action, row }) {
       </template>
     </Modal>
 
-    <Modal v-model="showLabDeletionErrorModal" title="Não foi possível excluir" size="sm">
-      <div class="flex items-start gap-3 rounded-2xl bg-bg-red p-4 text-sm text-text-primary">
-        <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
-        <p>{{ labDeletionErrorMessage }}</p>
+    <Modal v-model="showLabDeletionErrorModal" title="Não é possível excluir o laboratório" size="md">
+      <div class="space-y-4">
+        <div class="flex items-start gap-3 rounded-xl bg-bg-red p-4 text-sm text-text-primary">
+          <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+          <p>{{ labDeletionErrorMessage }}</p>
+        </div>
+
+        <section v-if="labDeletionDependencies.ativos?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ativos vinculados ({{ labDeletionDependencies.ativos.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="asset in labDeletionDependencies.ativos" :key="asset.id_ativos"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">{{ asset.nome }}</p>
+              <p class="text-text-secondary">Patrimônio: {{ asset.qr_code || 'Não informado' }}</p>
+            </li>
+          </ul>
+        </section>
+
+        <section v-if="labDeletionDependencies.ordens_servico?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ordens de serviço vinculadas ({{ labDeletionDependencies.ordens_servico.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="order in labDeletionDependencies.ordens_servico" :key="order.id_ordem"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">OS #{{ order.id_ordem }} · {{ order.titulo }}</p>
+              <p class="text-text-secondary">{{ order.status }} · {{ formatMovementDate(order.data_hora) }}</p>
+            </li>
+          </ul>
+        </section>
       </div>
 
       <template #footer>
@@ -1275,15 +1374,59 @@ function handleRowAction({ action, row }) {
       </template>
     </Modal>
 
-    <Modal v-model="showAssetDeletionErrorModal" title="Não foi possível excluir o ativo" size="sm">
-      <div class="flex items-start gap-3 rounded-2xl bg-bg-red p-4 text-sm text-text-primary">
-        <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
-        <p>{{ assetDeletionErrorMessage }}</p>
+    <Modal v-model="showAssetDeletionErrorModal" title="Ativo com vínculos" size="lg">
+      <div class="space-y-4">
+        <div class="flex items-start gap-3 rounded-xl bg-bg-red p-4 text-sm text-text-primary">
+          <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+          <p>{{ assetDeletionErrorMessage }}</p>
+        </div>
+
+        <section v-if="assetDeletionDependencies.movimentacoes?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Movimentações ({{ assetDeletionDependencies.movimentacoes.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="movement in assetDeletionDependencies.movimentacoes" :key="movement.id_mov"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">
+                Movimentação #{{ movement.id_mov }} · {{ formatMovementDate(movement.data_hora) }}
+                · {{ movement.local_m }}
+              </p>
+              <p class="mt-1 text-text-secondary">{{ movement.justificativa }}</p>
+            </li>
+          </ul>
+        </section>
+
+        <section v-if="assetDeletionDependencies.ordens_servico?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ordens de serviço ({{ assetDeletionDependencies.ordens_servico.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="order in assetDeletionDependencies.ordens_servico" :key="order.id_ordem"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">
+                OS #{{ order.id_ordem }} · {{ order.titulo }}
+              </p>
+              <p class="text-text-secondary">
+                {{ order.status }} · {{ formatMovementDate(order.data_hora) }}
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <p v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+          class="rounded-lg border border-red-primary/30 p-3 text-sm text-text-primary" role="note">
+          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço permanecerão cadastradas.
+        </p>
       </div>
 
       <template #footer>
         <Button variant="outline" size="sm" @click="showAssetDeletionErrorModal = false">
           Fechar
+        </Button>
+        <Button v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+          variant="primary" size="sm" @click="forceDeletePendingAsset">
+          Excluir mesmo assim
         </Button>
       </template>
     </Modal>

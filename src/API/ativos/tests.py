@@ -304,16 +304,47 @@ class ApiViewsTests(TestCase):
             descricao="OS vinculada ao ativo.",
         )
         order.ativos.add(self.ativo)
+        movement = MovimentacoesA.objects.create(
+            justificativa="Transferência para manutenção.",
+            local_m=self.sala.localizacao,
+            usuario=self.admin,
+            ativo=self.ativo,
+        )
 
         response = self.authenticate(self.admin).delete(f"/api/ativos/{self.ativo.pk}/")
 
         self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["movimentacoes"][0]["id_mov"], movement.pk)
+        self.assertEqual(response.data["ordens_servico"][0]["id_ordem"], order.pk)
         self.assertTrue(Ativo.objects.filter(pk=self.ativo.pk).exists())
         self.assertFalse(LogAcao.objects.filter(
             acao="EXCLUIR",
             entidade="Ativo",
             entidade_id=str(self.ativo.pk),
         ).exists())
+
+    def test_force_delete_removes_asset_movements_and_order_links_only(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção de teste",
+            descricao="OS vinculada ao ativo.",
+        )
+        order.ativos.add(self.ativo)
+        MovimentacoesA.objects.create(
+            justificativa="Transferência para manutenção.",
+            local_m=self.sala.localizacao,
+            usuario=self.admin,
+            ativo=self.ativo,
+        )
+
+        response = self.authenticate(self.admin).delete(
+            f"/api/ativos/{self.ativo.pk}/?force=true"
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Ativo.objects.filter(pk=self.ativo.pk).exists())
+        self.assertFalse(MovimentacoesA.objects.filter(ativo=self.ativo).exists())
+        self.assertTrue(OrdemServico.objects.filter(pk=order.pk).exists())
+        self.assertFalse(order.vinculos_ativos.exists())
 
     def test_laboratory_crud_uses_paginated_salas_contract(self):
         client = self.authenticate(self.admin)
@@ -353,6 +384,21 @@ class ApiViewsTests(TestCase):
         deleted = client.delete(f"/api/salas/{created.data['id_sala']}/")
         self.assertEqual(deleted.status_code, 204)
         self.assertFalse(SalaLab.objects.filter(pk=created.data["id_sala"]).exists())
+
+    def test_laboratory_with_assets_returns_conflict_details(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção do laboratório",
+            descricao="OS vinculada ao laboratório.",
+        )
+        order.salas.add(self.sala)
+
+        response = self.authenticate(self.admin).delete(f"/api/salas/{self.sala.pk}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["detail"], "Não é possível excluir este laboratório enquanto houver ativos ou ordens de serviço vinculados.")
+        self.assertEqual(response.data["ativos"][0]["id_ativos"], self.ativo.pk)
+        self.assertEqual(response.data["ordens_servico"][0]["id_ordem"], order.pk)
+        self.assertTrue(SalaLab.objects.filter(pk=self.sala.pk).exists())
 
     def test_asset_group_can_be_created_and_updated_by_staff_only(self):
         client = self.authenticate(self.admin)

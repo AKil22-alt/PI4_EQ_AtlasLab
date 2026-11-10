@@ -23,7 +23,18 @@ export async function apiRequest(path, options = {}) {
             headers
         })
 
-        const data = response.status === 204 ? null : await response.json()
+        let data = null
+        if (response.status !== 204) {
+            try {
+                data = await response.json()
+            } catch {
+                data = {
+                    detail: response.ok
+                        ? 'O servidor retornou uma resposta inválida.'
+                        : `O servidor retornou um erro inesperado (${response.status}).`
+                }
+            }
+        }
 
         if (!response.ok) {
             const message =
@@ -31,11 +42,12 @@ export async function apiRequest(path, options = {}) {
                 data?.email?.[0] ||
                 data?.nome?.[0] ||
                 data?.erro ||
-                data?.detail ||
+                (typeof data?.detail === 'string' ? data.detail : null) ||
                 data?.mensagem ||
                 'Não foi possível concluir a solicitação.'
             const error = new Error(message)
             error.status = response.status
+            error.data = data
             throw error
         }
 
@@ -202,8 +214,9 @@ export function updateAssetRequest(assetId, asset) {
     })
 }
 
-export function deleteAssetRequest(assetId) {
-    return apiRequest(`/ativos/${assetId}/`, {
+export function deleteAssetRequest(assetId, force = false) {
+    const forceQuery = force ? '?force=true' : ''
+    return apiRequest(`/ativos/${assetId}/${forceQuery}`, {
         method: 'DELETE'
     })
 }

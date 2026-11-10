@@ -6,7 +6,7 @@ import qrcode
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
 from django.db.models.deletion import ProtectedError
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -29,6 +29,8 @@ from .models import (
     LogAcao,
     ManutencaoA,
     MovimentacoesA,
+    OSAtivo,
+    OSSalaLab,
     OrdemServico,
     SalaLab,
     SolicitacaoCadastro,
@@ -318,6 +320,45 @@ class SalaLabViewSet(AuditedModelViewSet):
     entity_name = "SalaLab"
     search_fields = ["nome", "localizacao", "descricao"]
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            assets = list(
+                Ativo.objects.filter(Q(local_origem=instance) | Q(local_atual=instance))
+                .order_by("id_ativos")
+                .values("id_ativos", "nome", "qr_code")
+            )
+            service_orders = list(
+                OSSalaLab.objects.filter(sala=instance)
+                .select_related("ordem_servico")
+                .order_by("ordem_servico__id_ordem")
+                .values(
+                    "ordem_servico__id_ordem",
+                    "ordem_servico__titulo",
+                    "ordem_servico__status",
+                    "ordem_servico__data_hora",
+                )
+            )
+            return Response(
+                {
+                    "detail": "Não é possível excluir este laboratório enquanto houver ativos ou ordens de serviço vinculados.",
+                    "ativos": assets,
+                    "ordens_servico": [
+                        {
+                            "id_ordem": order["ordem_servico__id_ordem"],
+                            "titulo": order["ordem_servico__titulo"],
+                            "status": order["ordem_servico__status"],
+                            "data_hora": order["ordem_servico__data_hora"],
+                        }
+                        for order in service_orders
+                    ],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class AtivoViewSet(AuditedModelViewSet):
     serializer_class = AtivoSerializer
@@ -365,6 +406,49 @@ class AtivoViewSet(AuditedModelViewSet):
             )
             exception.status_code = status.HTTP_409_CONFLICT
             raise exception from error
+
+    def destroy(self, request, *args, **kwargs):
+        force_delete = request.query_params.get("force", "").lower() in {"1", "true", "yes"}
+
+        with transaction.atomic():
+            instance = self.get_object()
+            movements = list(
+                MovimentacoesA.objects.filter(ativo=instance)
+                .order_by("data_hora", "id_mov")
+                .values("id_mov", "data_hora", "local_m", "justificativa")
+            )
+            order_links = list(
+                OSAtivo.objects.filter(ativo=instance)
+                .select_related("ordem_servico")
+                .order_by("ordem_servico__id_ordem")
+            )
+            orders = [
+                {
+                    "id_ordem": link.ordem_servico_id,
+                    "titulo": link.ordem_servico.titulo,
+                    "status": link.ordem_servico.status,
+                    "data_hora": link.ordem_servico.data_hora,
+                }
+                for link in order_links
+            ]
+
+            if (movements or orders) and not force_delete:
+                return Response(
+                    {
+                        "detail": "Este ativo possui movimentações ou ordens de serviço vinculadas.",
+                        "movimentacoes": movements,
+                        "ordens_servico": orders,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            if force_delete:
+                MovimentacoesA.objects.filter(ativo=instance).delete()
+                OSAtivo.objects.filter(ativo=instance).delete()
+
+            self.perform_destroy(instance)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_permissions(self):
         self.action_roles = {"movimentar": TODOS}
