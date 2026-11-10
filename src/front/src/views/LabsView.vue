@@ -1,24 +1,209 @@
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import {
+  createLaboratoryRequest,
+  listLaboratoriesRequest,
+  listLaboratoryResponsiblesRequest,
+  updateLaboratoryRequest,
+  deleteLaboratoryRequest,
+  deleteAssetRequest,
+  assetHistoryRequest,
+  listAssetGroupsRequest,
+  createAssetGroupRequest,
+  updateAssetGroupRequest,
+  createAssetRequest,
+  updateAssetRequest,
+  moveAssetRequest,
+  listAllPagesRequest,
+  clearMovementHistoryRequest
+} from '../services/api'
 import Table from '../components/Table.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { ArrowRightLeft, Pencil, Plus } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import { useAuthStore } from '../store/auth'
 
+const authStore = useAuthStore()
+const route = useRoute()
 const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
+const movementSearchText = ref('')
+const allMovementRecords = ref([])
+const isLoadingMovementHistory = ref(false)
+const movementHistoryError = ref('')
+const clearMovementHistoryError = ref('')
+const selectedAssetMovements = ref([])
+const isLoadingAssetMovements = ref(false)
+const assetMovementsError = ref('')
 
-const labs = reactive([
-  { id: 1, acronym: 'B-101', title: 'Laboratório CAM', responsible: 'Thainara' },
-  { id: 2, acronym: 'B-102', title: 'Laboratório CAD', responsible: 'Thainara' },
-  { id: 3, acronym: 'B-103', title: 'Laboratório de Eletrônica', responsible: 'Thainara' },
-  { id: 4, acronym: 'B-104', title: 'Laboratório de Automação', responsible: 'Thainara' }
-])
+const labs = reactive([])
+const groups = reactive([])
+const laboratoryResponsibles = reactive([])
+const canManageLabs = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
+const canManageAssets = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
+const canClearMovementHistory = computed(() => authStore.currentUser?.cargo === 'ADM')
+
+const movementColumns = [
+  { key: 'date', label: 'Data e hora', width: '16%' },
+  { key: 'asset', label: 'Ativo', width: '18%' },
+  { key: 'patrimony', label: 'Patrimônio', width: '16%' },
+  { key: 'user', label: 'Responsável', width: '15%' },
+  { key: 'destination', label: 'Destino', width: '12%' },
+  { key: 'quantity', label: 'Quantidade', width: '10%' },
+  { key: 'justification', label: 'Justificativa', width: '13%' }
+]
+
+const filteredMovementRows = computed(() => {
+  const query = movementSearchText.value.trim().toLowerCase()
+
+  return allMovementRecords.value.map((movement) => ({
+    id: movement.id_mov,
+    date: formatMovementDate(movement.data_hora),
+    asset: movement.ativo_detalhes?.nome || `Ativo ${movement.ativo}`,
+    patrimony: movement.ativo_detalhes?.qr_code || 'Não informado',
+    user: movement.usuario_detalhes?.nome || 'Usuário',
+    destination: movement.local_m || 'Não informado',
+    quantity: movement.contagem_mov_a ?? 1,
+    justification: movement.justificativa || 'Não informada'
+  })).filter((movement) => !query || Object.values(movement)
+    .some((value) => String(value).toLowerCase().includes(query)))
+})
+
+async function loadMovementHistory() {
+  isLoadingMovementHistory.value = true
+  movementHistoryError.value = ''
+
+  try {
+    const movements = await listAllPagesRequest('/movimentacoes/')
+    allMovementRecords.value = movements.sort(
+      (first, second) => new Date(second.data_hora) - new Date(first.data_hora)
+    )
+  } catch (error) {
+    console.error('Erro ao carregar histórico de movimentações:', error)
+    movementHistoryError.value = 'Não foi possível carregar o histórico de movimentações. Tente novamente.'
+  } finally {
+    isLoadingMovementHistory.value = false
+  }
+}
+
+function formatMovementDate(value) {
+  if (!value) return 'Data não informada'
+
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+async function loadSelectedAssetHistory(assetId) {
+  isLoadingAssetMovements.value = true
+  assetMovementsError.value = ''
+  selectedAssetMovements.value = []
+
+  try {
+    const history = await assetHistoryRequest(assetId)
+    selectedAssetMovements.value = (history.movimentacoes || []).sort(
+      (first, second) => new Date(second.data_hora) - new Date(first.data_hora)
+    )
+  } catch (error) {
+    console.error('Erro ao carregar histórico do ativo:', error)
+    assetMovementsError.value = 'Não foi possível carregar as movimentações deste ativo.'
+  } finally {
+    isLoadingAssetMovements.value = false
+  }
+}
+
+function mapLaboratory(laboratory) {
+  return {
+    id: laboratory.id_sala,
+    acronym: laboratory.localizacao,
+    title: laboratory.nome,
+    responsible: laboratory.responsavel_detalhes?.nome || 'Não informado',
+    responsibleId: laboratory.responsavel,
+    numeroTa: laboratory.numero_ta
+  }
+}
+
+function mapAsset(asset) {
+  const originLab = labs.find((lab) => lab.id === asset.local_origem)
+  const currentLab = labs.find((lab) => lab.id === asset.local_atual)
+
+  return {
+    id: asset.id_ativos,
+    patrimony: asset.qr_code || '',
+    name: asset.nome,
+    origin: asset.local_origem_detalhes?.localizacao || originLab?.acronym || 'Não informado',
+    current: asset.local_atual_detalhes?.localizacao || currentLab?.acronym || 'Não informado',
+    originLabId: asset.local_origem,
+    currentLabId: asset.local_atual,
+    groupId: asset.grupo,
+    category: asset.grupo_detalhes?.nome || 'Não informado',
+    status: asset.status ? 'Ativo' : 'Inativo',
+    description: asset.descricao || ''
+  }
+}
+
+onMounted(async () => {
+  try {
+    const response = await listLaboratoriesRequest()
+    const laboratories = Array.isArray(response) ? response : response.results
+    labs.push(...laboratories.map(mapLaboratory))
+  } catch (error) {
+    console.error('Erro ao carregar laboratórios:', error)
+  }
+
+  if (canManageLabs.value) {
+    try {
+      const responsibles = await listLaboratoryResponsiblesRequest()
+      laboratoryResponsibles.push(...responsibles)
+    } catch (error) {
+      console.error('Erro ao carregar responsáveis dos laboratórios:', error)
+    }
+  }
+
+  try {
+    const assets = await listAllPagesRequest('/ativos/')
+    rows.push(...assets.map(mapAsset))
+  } catch (error) {
+    console.error('Erro ao carregar ativos:', error)
+  }
+
+  try {
+    const response = await listAssetGroupsRequest()
+    groups.push(...(Array.isArray(response) ? response : response.results))
+  } catch (error) {
+    console.error('Erro ao carregar grupos de ativos:', error)
+  }
+
+  await loadMovementHistory()
+
+  if (['labs', 'assets', 'movements'].includes(route.query.tab)) {
+    activeTab.value = route.query.tab
+  }
+
+  if (route.query.assetId) {
+    const asset = rows.find((item) => String(item.id) === String(route.query.assetId))
+    if (asset) handleRowAction({ action: 'view', row: asset })
+  }
+
+  if (route.query.labId) {
+    const lab = labs.find((item) => String(item.id) === String(route.query.labId))
+    if (lab) openLabDetails(lab)
+  }
+
+  if (route.query.movementId) {
+    movementSearchText.value = String(route.query.movementId)
+  }
+})
 
 const filteredLabs = computed(() => {
   const query = searchText.value.trim().toLowerCase()
@@ -32,71 +217,77 @@ const filteredLabs = computed(() => {
 })
 
 const columns = [
-  { key: 'id', label: 'Patrimônio', width: '8%' },
+  { key: 'patrimony', label: 'QR Code', width: '14%' },
   { key: 'name', label: 'Nome', width: '16%' },
   { key: 'origin', label: 'Local de origem', width: '15%' },
   { key: 'current', label: 'Local atual', width: '15%' },
   { key: 'status', label: 'Status', width: '10%', type: 'status' },
   { key: 'description', label: 'Descrição', width: '28%' },
-  { key: 'actions', label: 'Ações', width: '8%', type: 'actions' }
+  { key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
-const rows = reactive([
-  {
-    id: '1256652',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  },
-  {
-    id: '1256653',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  },
-  {
-    id: '1256654',
-    name: 'Monitor Dell 24"',
-    origin: 'B-101',
-    current: 'B-102',
-    category: 'Tecnologia',
-    status: 'Ativo',
-    description: 'Manutenção preventiva da centrífuga CT-02: limpeza, inspeção do rotor, calibração.'
-  }
-])
+const rows = reactive([])
+const assetCountsByLab = computed(() => ({
+  labels: labs.map((lab) => lab.title || lab.acronym),
+  values: labs.map((lab) => rows.filter(
+    (asset) => String(asset.currentLabId) === String(lab.id)
+  ).length)
+}))
 
 const showLabModal = ref(false)
 const showLabDetailsModal = ref(false)
 const showAssetModal = ref(false)
+const showGroupModal = ref(false)
 const showDetailsModal = ref(false)
+const showMovementModal = ref(false)
 const selectedAsset = ref(null)
 const selectedLab = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
 const editingLabId = ref(null)
 const editingAssetId = ref(null)
+const editingGroupId = ref(null)
 const pendingLabId = ref(null)
+const pendingAssetId = ref(null)
+const labValidationMessage = ref('')
+const groupValidationMessage = ref('')
+const assetValidationMessage = ref('')
+const movementValidationMessage = ref('')
+const showLabDeletionErrorModal = ref(false)
+const labDeletionErrorMessage = ref('')
+const labDeletionDependencies = ref({ ativos: [], ordens_servico: [] })
+const showAssetDeletionErrorModal = ref(false)
+const assetDeletionErrorMessage = ref('')
+const assetDeletionDependencies = ref({ movimentacoes: [], ordens_servico: [] })
 
 const labForm = reactive({
   acronym: '',
   name: '',
-  responsible: ''
+  numeroTa: '',
+  responsible: null
 })
 
 const assetForm = reactive({
-  patrimony: '',
+  qrCode: '',
   name: '',
-  origin: '',
-  current: '',
-  category: '',
+  originLab: '',
+  currentLab: '',
+  group: '',
   status: 'Ativo',
   description: ''
+})
+
+const groupForm = reactive({
+  nome: '',
+  numeroTa: '',
+  tipo: '',
+  setor: ''
+})
+
+const movementForm = reactive({
+  assetId: '',
+  labId: '',
+  justification: ''
 })
 
 const assetFilters = reactive({
@@ -105,8 +296,10 @@ const assetFilters = reactive({
   location: '',
   status: ''
 })
+const assetPageSize = ref(10)
+const assetCurrentPage = ref(1)
 
-const patrimonyOptions = computed(() => [...new Set(rows.map((row) => row.id))])
+const patrimonyOptions = computed(() => [...new Set(rows.map((row) => row.patrimony))])
 const nameOptions = computed(() => [...new Set(rows.map((row) => row.name))])
 const locationOptions = computed(() => [
   ...new Set(rows.flatMap((row) => [row.origin, row.current]))
@@ -119,7 +312,7 @@ const filteredRows = computed(() => {
   return rows.filter((row) => {
     const matchesSearch = !query || Object.values(row)
       .some((value) => String(value).toLowerCase().includes(query))
-    const matchesPatrimony = !assetFilters.patrimony || row.id === assetFilters.patrimony
+    const matchesPatrimony = !assetFilters.patrimony || row.patrimony === assetFilters.patrimony
     const matchesName = !assetFilters.name || row.name === assetFilters.name
     const matchesLocation = !assetFilters.location
       || row.origin === assetFilters.location
@@ -133,6 +326,22 @@ const filteredRows = computed(() => {
       && matchesStatus
   })
 })
+const assetPageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / assetPageSize.value)))
+const paginatedRows = computed(() => {
+  const start = (assetCurrentPage.value - 1) * assetPageSize.value
+  return filteredRows.value.slice(start, start + assetPageSize.value)
+})
+const firstVisibleAsset = computed(() => filteredRows.value.length
+  ? (assetCurrentPage.value - 1) * assetPageSize.value + 1
+  : 0)
+const lastVisibleAsset = computed(() => Math.min(
+  assetCurrentPage.value * assetPageSize.value,
+  filteredRows.value.length
+))
+
+watch([filteredRows, assetPageSize], () => {
+  assetCurrentPage.value = 1
+})
 
 function clearAssetFilters() {
   assetSearchText.value = ''
@@ -143,27 +352,89 @@ function clearAssetFilters() {
 }
 
 function resetAssetForm() {
-  assetForm.patrimony = ''
+  assetForm.qrCode = ''
   assetForm.name = ''
-  assetForm.origin = ''
-  assetForm.current = ''
-  assetForm.category = ''
+  assetForm.originLab = ''
+  assetForm.currentLab = ''
+  assetForm.group = ''
   assetForm.status = 'Ativo'
   assetForm.description = ''
+  assetValidationMessage.value = ''
+}
+
+function resetGroupForm() {
+  groupForm.nome = ''
+  groupForm.numeroTa = ''
+  groupForm.tipo = ''
+  groupForm.setor = ''
+  editingGroupId.value = null
+  groupValidationMessage.value = ''
+}
+
+function openGroupManager() {
+  resetGroupForm()
+  showGroupModal.value = true
+}
+
+function editGroup(group) {
+  editingGroupId.value = group.id_grupo_a
+  groupForm.nome = group.nome
+  groupForm.numeroTa = group.numero_ta
+  groupForm.tipo = group.tipo
+  groupForm.setor = group.setor
+  groupValidationMessage.value = ''
+}
+
+async function saveGroup() {
+  if (!groupForm.nome.trim() || !groupForm.tipo.trim() || !groupForm.setor.trim()) {
+    groupValidationMessage.value = 'Preencha nome, tipo e setor.'
+    return
+  }
+
+  const numeroTa = Number(groupForm.numeroTa)
+  if (!Number.isInteger(numeroTa) || numeroTa < 1) {
+    groupValidationMessage.value = 'Informe um Número TA válido.'
+    return
+  }
+
+  const payload = {
+    nome: groupForm.nome.trim(),
+    numero_ta: numeroTa,
+    tipo: groupForm.tipo.trim(),
+    setor: groupForm.setor.trim()
+  }
+
+  try {
+    if (editingGroupId.value !== null) {
+      const updatedGroup = await updateAssetGroupRequest(editingGroupId.value, payload)
+      const existingGroup = groups.find((group) => group.id_grupo_a === editingGroupId.value)
+      if (existingGroup) Object.assign(existingGroup, updatedGroup)
+    } else {
+      const createdGroup = await createAssetGroupRequest(payload)
+      groups.push(createdGroup)
+    }
+    resetGroupForm()
+  } catch (error) {
+    groupValidationMessage.value = error.message
+  }
 }
 
 function resetLabForm() {
   labForm.acronym = ''
   labForm.name = ''
-  labForm.responsible = ''
+  labForm.numeroTa = ''
+  labForm.responsible = null
+  labValidationMessage.value = ''
 }
 
 function openLabForm(lab = null) {
   showLabDetailsModal.value = false
+  labValidationMessage.value = ''
   editingLabId.value = lab?.id ?? null
   labForm.acronym = lab?.acronym ?? ''
   labForm.name = lab?.title ?? ''
-  labForm.responsible = lab?.responsible ?? ''
+  labForm.numeroTa = lab?.numeroTa ?? ''
+  labForm.responsible = lab?.responsibleId ?? null
   showLabModal.value = true
 }
 
@@ -172,107 +443,302 @@ function openLabDetails(lab) {
   showLabDetailsModal.value = true
 }
 
-function saveLab() {
-  if (!labForm.acronym.trim()) return
-  if (editingLabId.value !== null) {
-    requestConfirmation('save-lab')
+async function saveLab() {
+  if (!labForm.name.trim()) {
+    labValidationMessage.value = 'Preencha o nome do laboratório.'
     return
   }
 
-  labs.push({
-    id: Date.now(),
-    acronym: labForm.acronym.trim(),
-    title: labForm.name.trim(),
-    responsible: labForm.responsible
-  })
-  showLabModal.value = false
-  resetLabForm()
+  if (!labForm.acronym.trim()) {
+    labValidationMessage.value = 'Preencha a sigla do laboratório.'
+    return
+  }
+
+  const numeroTa = Number(labForm.numeroTa)
+  if (!Number.isInteger(numeroTa) || numeroTa < 1) {
+    labValidationMessage.value = 'Informe um Número TA válido.'
+    return
+  }
+
+  labValidationMessage.value = ''
+  if (editingLabId.value !== null) {
+    const laboratoryId = editingLabId.value
+    const lab = labs.find((item) => String(item.id) === String(laboratoryId))
+    if (!lab) {
+      console.error('Laboratório não encontrado para edição:', laboratoryId)
+      return
+    }
+
+    try {
+      const laboratory = await updateLaboratoryRequest(laboratoryId, {
+        nome: labForm.name.trim(),
+        localizacao: labForm.acronym.trim(),
+        numero_ta: numeroTa,
+        responsavel: labForm.responsible || null
+      })
+
+      Object.assign(lab, mapLaboratory(laboratory))
+      showLabModal.value = false
+      editingLabId.value = null
+      resetLabForm()
+    } catch (error) {
+      console.error('Erro ao editar laboratório:', error)
+    }
+    return
+  }
+
+  try {
+    const laboratory = await createLaboratoryRequest({
+      nome: labForm.name.trim(),
+      localizacao: labForm.acronym.trim(),
+      numero_ta: numeroTa,
+      responsavel: labForm.responsible || null
+    })
+
+    labs.unshift(mapLaboratory(laboratory))
+    showLabModal.value = false
+    resetLabForm()
+  } catch (error) {
+    console.error('Erro ao criar laboratório:', error)
+  }
 }
 
 function openAssetForm(asset = null) {
   showDetailsModal.value = false
+  assetValidationMessage.value = ''
   editingAssetId.value = asset?.id ?? null
-  assetForm.patrimony = asset?.id ?? ''
+  assetForm.qrCode = asset?.patrimony ?? ''
   assetForm.name = asset?.name ?? ''
-  assetForm.origin = asset?.origin ?? ''
-  assetForm.current = asset?.current ?? ''
-  assetForm.category = asset?.category ?? ''
+  assetForm.originLab = asset?.originLabId
+    ?? labs.find((lab) => lab.acronym === asset?.origin)?.id
+    ?? ''
+  assetForm.currentLab = asset?.currentLabId
+    ?? labs.find((lab) => lab.acronym === asset?.current)?.id
+    ?? ''
+  assetForm.group = asset?.groupId ?? ''
   assetForm.status = asset?.status ?? 'Ativo'
   assetForm.description = asset?.description ?? ''
   showAssetModal.value = true
 }
 
-function createAsset() {
-  if (!assetForm.patrimony.trim()) {
+async function createAsset() {
+  const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
+  const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
+  const missingFields = []
+  if (!assetForm.name.trim()) missingFields.push('nome')
+  if (!originLab) missingFields.push('local de origem')
+  if (!currentLab) missingFields.push('local atual')
+  if (!assetForm.group) missingFields.push('grupo')
+  if (missingFields.length) {
+    assetValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
     return
   }
+  assetValidationMessage.value = ''
 
   if (editingAssetId.value !== null) {
     requestConfirmation('save-asset')
     return
   }
 
-  rows.push({
-    id: assetForm.patrimony.trim(),
-    name: assetForm.name.trim(),
-    origin: assetForm.origin,
-    current: assetForm.current,
-    category: assetForm.category,
-    status: assetForm.status,
-    description: assetForm.description.trim()
-  })
+  try {
+    const payload = {
+      nome: assetForm.name.trim(),
+      local_origem: originLab.id,
+      local_atual: currentLab.id,
+      grupo: Number(assetForm.group),
+      descricao: assetForm.description.trim(),
+      status: assetForm.status === 'Ativo'
+    }
+    const asset = await createAssetRequest(payload)
 
-  showAssetModal.value = false
-  resetAssetForm()
+    rows.push(mapAsset(asset))
+
+    showAssetModal.value = false
+    resetAssetForm()
+  } catch (error) {
+    console.error('Erro ao criar ativo:', error)
+  }
 }
 
-function saveAsset() {
+async function saveAsset() {
   const asset = rows.find((row) => row.id === editingAssetId.value)
   if (!asset) return
+  const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
+  const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
+  const missingFields = []
+  if (!assetForm.name.trim()) missingFields.push('nome')
+  if (!originLab) missingFields.push('local de origem')
+  if (!currentLab) missingFields.push('local atual')
+  if (!assetForm.group) missingFields.push('grupo')
+  if (missingFields.length) {
+    assetValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
+    return
+  }
+  assetValidationMessage.value = ''
 
-  Object.assign(asset, {
-    id: assetForm.patrimony.trim(),
-    name: assetForm.name.trim(),
-    origin: assetForm.origin,
-    current: assetForm.current,
-    category: assetForm.category,
-    status: assetForm.status,
-    description: assetForm.description.trim()
-  })
-  showAssetModal.value = false
-  editingAssetId.value = null
-  resetAssetForm()
+  try {
+    const updatedAsset = await updateAssetRequest(asset.id, {
+      nome: assetForm.name.trim(),
+      local_origem: originLab.id,
+      local_atual: currentLab.id,
+      grupo: Number(assetForm.group),
+      descricao: assetForm.description.trim(),
+      status: assetForm.status === 'Ativo'
+    })
+
+    Object.assign(asset, mapAsset(updatedAsset))
+    showAssetModal.value = false
+    editingAssetId.value = null
+    resetAssetForm()
+  } catch (error) {
+    console.error('Erro ao editar ativo:', error)
+  }
+}
+
+function openMovementForm(asset = null) {
+  selectedAsset.value = asset
+  showDetailsModal.value = false
+  movementValidationMessage.value = ''
+  movementForm.assetId = asset?.id ?? ''
+  movementForm.labId = asset?.currentLabId ?? asset?.roomId ?? ''
+  movementForm.justification = ''
+  showMovementModal.value = true
+}
+
+function selectMovementAsset() {
+  const asset = rows.find((item) => String(item.id) === String(movementForm.assetId))
+  movementForm.labId = asset?.currentLabId ?? ''
+}
+
+async function submitMovement() {
+  const assetId = selectedAsset.value?.id ?? movementForm.assetId
+  const asset = rows.find((item) => String(item.id) === String(assetId))
+  const lab = labs.find((item) => String(item.id) === String(movementForm.labId))
+  const missingFields = []
+  if (!asset) missingFields.push('ativo')
+  if (!lab) missingFields.push('novo local')
+  if (!movementForm.justification.trim()) missingFields.push('justificativa')
+  if (missingFields.length) {
+    movementValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
+    return
+  }
+  movementValidationMessage.value = ''
+
+  try {
+    await moveAssetRequest(asset.id, {
+      local_m: lab.acronym,
+      sala_id: lab.id,
+      justificativa: movementForm.justification.trim()
+    })
+
+    const updatedLocation = lab.acronym
+    asset.current = updatedLocation
+    asset.currentLabId = lab.id
+    asset.roomId = lab.id
+    if (selectedAsset.value?.id === asset.id) Object.assign(selectedAsset.value, asset)
+    showMovementModal.value = false
+    movementForm.assetId = ''
+    movementForm.labId = ''
+    movementForm.justification = ''
+    void loadMovementHistory()
+  } catch (error) {
+    console.error('Erro ao movimentar ativo:', error)
+  }
 }
 
 function requestConfirmation(action) {
   confirmationAction.value = action
+  if (action === 'clear-movements') clearMovementHistoryError.value = ''
   showConfirmation.value = true
 }
 
 function requestLabDeletion(lab) {
   pendingLabId.value = lab.id
+  labDeletionErrorMessage.value = ''
+  labDeletionDependencies.value = { ativos: [], ordens_servico: [] }
   requestConfirmation('delete-lab')
 }
 
-function confirmAction() {
-  if (confirmationAction.value === 'save-lab') {
-    const lab = labs.find((item) => item.id === editingLabId.value)
-    if (lab) Object.assign(lab, {
-      acronym: labForm.acronym.trim(),
-      title: labForm.name.trim(),
-      responsible: labForm.responsible
-    })
-    showLabModal.value = false
-    editingLabId.value = null
-    resetLabForm()
+function requestAssetDeletion(asset) {
+  pendingAssetId.value = asset.id
+  assetDeletionDependencies.value = { movimentacoes: [], ordens_servico: [] }
+  assetDeletionErrorMessage.value = ''
+  requestConfirmation('delete-asset')
+}
+
+async function deletePendingAsset(force = false) {
+  const assetId = pendingAssetId.value
+  if (!assetId) return
+
+  try {
+    await deleteAssetRequest(assetId, force)
+    const assetIndex = rows.findIndex((asset) => String(asset.id) === String(assetId))
+    if (assetIndex !== -1) rows.splice(assetIndex, 1)
+    if (String(selectedAsset.value?.id) === String(assetId)) {
+      selectedAsset.value = null
+      showDetailsModal.value = false
+    }
+    pendingAssetId.value = null
+    assetDeletionDependencies.value = { movimentacoes: [], ordens_servico: [] }
+    showAssetDeletionErrorModal.value = false
+    await loadMovementHistory()
+  } catch (error) {
+    assetDeletionErrorMessage.value = error.message || 'Não foi possível excluir este ativo.'
+    assetDeletionDependencies.value = error.data || { movimentacoes: [], ordens_servico: [] }
+    showAssetDeletionErrorModal.value = true
+  }
+}
+
+function forceDeletePendingAsset() {
+  return deletePendingAsset(true)
+}
+
+function goToAssetsFromLabDeletionError() {
+  const firstLinkedAsset = labDeletionDependencies.value.ativos[0]
+  if (firstLinkedAsset) assetSearchText.value = firstLinkedAsset.nome
+  showLabDeletionErrorModal.value = false
+  activeTab.value = 'assets'
+}
+
+async function confirmAction() {
+  const action = confirmationAction.value
+
+  if (action === 'save-asset') await saveAsset()
+
+  if (action === 'clear-movements') {
+    try {
+      await clearMovementHistoryRequest()
+      allMovementRecords.value = []
+      selectedAssetMovements.value = []
+      movementHistoryError.value = ''
+      clearMovementHistoryError.value = ''
+    } catch (error) {
+      clearMovementHistoryError.value = error.message || 'Não foi possível limpar o histórico.'
+    }
   }
 
-  if (confirmationAction.value === 'save-asset') saveAsset()
+  if (action === 'delete-asset') {
+    await deletePendingAsset()
+  }
 
-  if (confirmationAction.value === 'delete-lab') {
-    const labIndex = labs.findIndex((lab) => lab.id === pendingLabId.value)
-    if (labIndex !== -1) labs.splice(labIndex, 1)
-    pendingLabId.value = null
+  if (action === 'delete-lab') {
+    try {
+      await deleteLaboratoryRequest(pendingLabId.value)
+
+      const labIndex = labs.findIndex(
+        (lab) => String(lab.id) === String(pendingLabId.value)
+      )
+
+      if (labIndex !== -1) {
+        labs.splice(labIndex, 1)
+      }
+
+      pendingLabId.value = null
+    } catch (error) {
+      labDeletionErrorMessage.value = error.message || 'Não foi possível excluir o laboratório.'
+      labDeletionDependencies.value = error.data || { ativos: [], ordens_servico: [] }
+      showLabDeletionErrorModal.value = true
+    }
   }
 
   confirmationAction.value = null
@@ -281,16 +747,20 @@ function confirmAction() {
 function handleRowAction({ action, row }) {
   if (action === 'view') {
     selectedAsset.value = row
+    selectedAssetMovements.value = []
     showDetailsModal.value = true
+    void loadSelectedAssetHistory(row.id)
   } else if (action === 'edit') {
     openAssetForm(row)
+  } else if (action === 'delete') {
+    requestAssetDeletion(row)
   }
 }
 </script>
 
 <template>
-  <main class="space-y-6 px-8 pb-8 pt-0">
-    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios e ativos">
+  <main class="min-w-0 space-y-6 px-4 pb-8 pt-0 sm:px-8">
+    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios, ativos e movimentações">
       <button type="button" :class="[
         'border-b-2 px-2 pb-2 text-sm',
         activeTab === 'labs'
@@ -308,20 +778,30 @@ function handleRowAction({ action, row }) {
       ]" :aria-selected="activeTab === 'assets'" @click="activeTab = 'assets'">
         Ativos
       </button>
+
+      <button type="button" :class="[
+        'border-b-2 px-2 pb-2 text-sm',
+        activeTab === 'movements'
+          ? 'border-red-primary font-semibold text-red-primary'
+          : 'border-transparent text-text-secondary'
+      ]" :aria-selected="activeTab === 'movements'" @click="activeTab = 'movements'">
+        Movimentações
+      </button>
     </nav>
 
     <section v-if="activeTab === 'labs'" class="space-y-6">
-      <div class="flex items-center justify-between gap-4">
-        <div class="w-60">
+      <div class="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
+        <div class="w-full sm:w-60">
           <Searchbar v-model="searchText" />
         </div>
 
-        <Button @click="openLabForm()" variant="primary" size="sm">
+        <Button v-if="canManageLabs" @click="openLabForm()" variant="primary" size="sm">
           <Plus :size="18" />
           Criar Laboratório
         </Button>
       </div>
-      <Modal v-model="showLabModal" :title="editingLabId === null ? 'Criar Laboratório' : 'Editar Laboratório'" size="lg">
+      <Modal v-model="showLabModal" :title="editingLabId === null ? 'Criar Laboratório' : 'Editar Laboratório'"
+        size="lg">
         <div class="space-y-5">
           <div class="space-y-2">
             <label for="lab-acronym" class="text-sm font-medium text-text-primary">
@@ -333,23 +813,37 @@ function handleRowAction({ action, row }) {
 
           <div class="space-y-2">
             <label for="lab-name" class="text-sm font-medium text-text-primary">
-              Nome
+              Nome <span class="text-red-primary">*</span>
             </label>
-            <input id="lab-name" v-model="labForm.name" type="text" placeholder="Laboratório CAM"
+            <input id="lab-name" v-model="labForm.name" type="text" placeholder="Laboratório CAM" required
+              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+          </div>
+
+          <div class="space-y-2">
+            <label for="lab-number-ta" class="text-sm font-medium text-text-primary">
+              Número TA <span class="text-red-primary">*</span>
+            </label>
+            <input id="lab-number-ta" v-model="labForm.numeroTa" type="number" min="1" step="1" placeholder="1" required
               class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
           </div>
 
           <div class="space-y-2">
             <label for="lab-responsible" class="text-sm font-medium text-text-primary">
-              Responsável <span class="text-red-primary">*</span>
+              Responsável
             </label>
-            <select id="lab-responsible" v-model="labForm.responsible" required
+            <select id="lab-responsible" v-model.number="labForm.responsible"
               class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option disabled value="">Selecione</option>
-              <option value="responsible-1">Responsável 1</option>
-              <option value="responsible-2">Responsável 2</option>
+              <option :value="null">Sem responsável</option>
+              <option v-for="responsible in laboratoryResponsibles" :key="responsible.id_user"
+                :value="responsible.id_user">
+                {{ responsible.nome }} ({{ responsible.cargo }})
+              </option>
             </select>
           </div>
+
+          <p v-if="labValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+            {{ labValidationMessage }}
+          </p>
         </div>
 
         <template #footer>
@@ -365,17 +859,21 @@ function handleRowAction({ action, row }) {
       <Modal v-model="showLabDetailsModal" title="Detalhes do laboratório" size="sm">
         <div v-if="selectedLab" class="space-y-5 border-t border-red-primary pt-4">
           <dl class="space-y-4 text-sm">
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Sigla</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.acronym }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.acronym }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Nome</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.title }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.title }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
+              <dt class="font-medium text-text-primary">Número TA</dt>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.numeroTa }}</dd>
+            </div>
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Responsável</dt>
-              <dd class="text-right text-text-secondary">{{ selectedLab.responsible }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedLab.responsible }}</dd>
             </div>
           </dl>
         </div>
@@ -391,112 +889,188 @@ function handleRowAction({ action, row }) {
         </template>
       </Modal>
 
-      <LineChart title="Histórico de Ativos" :labels="[
-        'B-101', 'B-101', 'B-101', 'B-101', 'B-101',
-        'B-101', 'B-101', 'B-101', 'B-101', 'B-101'
-      ]" :values="[5, 12, 8, 15, 15, 22, 18, 22, 8, 5]" />
+      <LineChart v-if="labs.length" title="Ativos por Laboratório" :labels="assetCountsByLab.labels"
+        :values="assetCountsByLab.values" series-label="Quantidade de ativos" />
+      <article v-else class="w-full rounded-lg bg-red-2 px-8 py-6" aria-live="polite">
+        <h2 class="text-2xl font-semibold text-black">Ativos por Laboratório</h2>
+        <p class="mt-3 text-sm text-text-secondary">Nenhum laboratório cadastrado.</p>
+      </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
-          :responsible="lab.responsible" @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
-          @edit="openLabDetails(lab)"
-          @delete="requestLabDeletion(lab)" />
+          :responsible="lab.responsible" :can-manage="canManageLabs"
+          @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
+          @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>
 
-    <section v-else class="space-y-6" aria-labelledby="assets-title">
-      <div class="flex justify-end">
-        <Button @click="openAssetForm()" variant="primary" size="sm">
+    <section v-else-if="activeTab === 'assets'" class="space-y-6" aria-labelledby="assets-title">
+      <div class="flex flex-wrap justify-end gap-3">
+        <Button v-if="canManageAssets" @click="openGroupManager" variant="outline" size="sm">
+          <Layers :size="18" />
+          Gerenciar grupos
+        </Button>
+        <Button v-if="canManageAssets" @click="openAssetForm()" variant="primary" size="sm">
           <Plus :size="18" />
           Criar Ativo
         </Button>
-      <Modal v-model="showAssetModal" :title="editingAssetId === null ? 'Criar Ativo' : 'Editar Ativo'" size="lg">
-        <div class="space-y-5">
-          <div class="space-y-2">
-            <label for="asset-patrimony" class="text-sm font-medium text-text-primary">
-              Patrimônio <span class="text-red-primary">*</span>
-            </label>
-            <input id="asset-patrimony" v-model="assetForm.patrimony" type="text" placeholder="Digite o patrimônio do ativo" required
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
-          </div>
-
-          <div class="space-y-2">
-            <label for="asset-name" class="text-sm font-medium text-text-primary">
-              Nome
-            </label>
-            <input id="asset-name" v-model="assetForm.name" type="text" placeholder="Digite o nome do ativo"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
-          </div>
-
-          <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <Modal v-model="showAssetModal" :title="editingAssetId === null ? 'Criar Ativo' : 'Editar Ativo'" size="lg">
+          <div class="space-y-5">
             <div class="space-y-2">
-              <label for="asset-origin" class="text-sm font-medium text-text-primary">
-                Local de Origem
+              <label for="asset-qr-code" class="text-sm font-medium text-text-primary">
+                QR Code
               </label>
-              <select id="asset-origin" v-model="assetForm.origin"
+              <input id="asset-qr-code" :value="assetForm.qrCode || 'Gerado automaticamente ao criar'" type="text" readonly
+                class="w-full rounded-lg bg-gray-100 px-3 py-3 text-sm text-text-secondary outline-none" />
+            </div>
+
+            <div class="space-y-2">
+              <label for="asset-name" class="text-sm font-medium text-text-primary">
+                Nome <span class="text-red-primary">*</span>
+              </label>
+              <input id="asset-name" v-model="assetForm.name" type="text" placeholder="Digite o nome do ativo" required
+                class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+            </div>
+
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <div class="space-y-2">
+                <label for="asset-origin" class="text-sm font-medium text-text-primary">
+                  Local de Origem <span class="text-red-primary">*</span>
+                </label>
+                <select id="asset-origin" v-model.number="assetForm.originLab" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option disabled value="">Selecione um laboratório</option>
+                  <option v-for="lab in labs" :key="`origin-${lab.id}`" :value="lab.id">
+                    {{ lab.title }} - {{ lab.acronym }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="space-y-2">
+                <label for="asset-current" class="text-sm font-medium text-text-primary">
+                  Local Atual <span class="text-red-primary">*</span>
+                </label>
+                <select id="asset-current" v-model.number="assetForm.currentLab" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+                  <option disabled value="">Selecione um laboratório</option>
+                  <option v-for="lab in labs" :key="`current-${lab.id}`" :value="lab.id">
+                    {{ lab.title }} - {{ lab.acronym }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <label for="asset-group" class="text-sm font-medium text-text-primary">
+                Grupo <span class="text-red-primary">*</span>
+              </label>
+              <select id="asset-group" v-model="assetForm.group" required
                 class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
                 <option value="">Selecione</option>
-                <option v-for="location in locationOptions" :key="`origin-${location}`" :value="location">
-                  {{ location }}
+                <option v-for="group in groups" :key="group.id_grupo_a" :value="group.id_grupo_a">
+                  {{ group.nome }}
                 </option>
               </select>
             </div>
 
             <div class="space-y-2">
-              <label for="asset-current" class="text-sm font-medium text-text-primary">
-                Local Atual
+              <label for="asset-status" class="text-sm font-medium text-text-primary">
+                Status
               </label>
-              <select id="asset-current" v-model="assetForm.current"
+              <select id="asset-status" v-model="assetForm.status"
                 class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-                <option value="">Selecione</option>
-                <option v-for="location in locationOptions" :key="`current-${location}`" :value="location">
-                  {{ location }}
-                </option>
+                <option value="Ativo">Ativo</option>
+                <option value="Inativo">Inativo</option>
               </select>
             </div>
+
+            <div class="space-y-2">
+              <label for="asset-description" class="text-sm font-medium text-text-primary">
+                Descrição
+              </label>
+              <textarea id="asset-description" v-model="assetForm.description" rows="4" placeholder="Descreva o ativo"
+                class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
+            </div>
+            <p v-if="assetValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+              {{ assetValidationMessage }}
+            </p>
           </div>
 
-          <div class="space-y-2">
-            <label for="asset-category" class="text-sm font-medium text-text-primary">
-              Categoria
-            </label>
-            <select id="asset-category" v-model="assetForm.category"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option value="">Selecione</option>
-              <option value="Equipamento">Equipamento</option>
-              <option value="Mobiliário">Mobiliário</option>
-            </select>
-          </div>
+          <template #footer>
+            <Button variant="outline" @click="showAssetModal = false; editingAssetId = null">
+              Cancelar
+            </Button>
+            <Button variant="primary" @click="createAsset">
+              {{ editingAssetId === null ? 'Criar' : 'Salvar' }}
+            </Button>
+          </template>
+        </Modal>
 
-          <div class="space-y-2">
-            <label for="asset-status" class="text-sm font-medium text-text-primary">
-              Status
-            </label>
-            <select id="asset-status" v-model="assetForm.status"
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option value="Ativo">Ativo</option>
-              <option value="Inativo">Inativo</option>
-            </select>
-          </div>
+        <Modal v-model="showGroupModal" title="Gerenciar grupos" size="lg">
+          <div class="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <section class="space-y-4" aria-label="Formulário de grupo">
+              <h3 class="text-base font-semibold text-text-primary">
+                {{ editingGroupId === null ? 'Novo grupo' : 'Editar grupo' }}
+              </h3>
+              <div class="space-y-2">
+                <label for="group-name" class="text-sm font-medium text-text-primary">Nome *</label>
+                <input id="group-name" v-model="groupForm.nome" type="text" maxlength="100" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+              </div>
+              <div class="space-y-2">
+                <label for="group-number-ta" class="text-sm font-medium text-text-primary">Número TA *</label>
+                <input id="group-number-ta" v-model="groupForm.numeroTa" type="number" min="1" step="1" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+              </div>
+              <div class="space-y-2">
+                <label for="group-type" class="text-sm font-medium text-text-primary">Tipo *</label>
+                <input id="group-type" v-model="groupForm.tipo" type="text" maxlength="50" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+              </div>
+              <div class="space-y-2">
+                <label for="group-sector" class="text-sm font-medium text-text-primary">Setor *</label>
+                <input id="group-sector" v-model="groupForm.setor" type="text" maxlength="100" required
+                  class="w-full rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+              </div>
+              <p v-if="groupValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+                {{ groupValidationMessage }}
+              </p>
+              <div class="flex flex-wrap gap-3">
+                <Button variant="primary" size="sm" @click="saveGroup">
+                  {{ editingGroupId === null ? 'Criar grupo' : 'Salvar alterações' }}
+                </Button>
+                <Button v-if="editingGroupId !== null" variant="outline" size="sm" @click="resetGroupForm">
+                  Cancelar edição
+                </Button>
+              </div>
+            </section>
 
-          <div class="space-y-2">
-            <label for="asset-description" class="text-sm font-medium text-text-primary">
-              Descrição
-            </label>
-            <textarea id="asset-description" v-model="assetForm.description" rows="4"
-              placeholder="Descreva o ativo"
-              class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
+            <section class="min-w-0" aria-label="Grupos cadastrados">
+              <h3 class="mb-3 text-base font-semibold text-text-primary">Grupos cadastrados</h3>
+              <p v-if="groups.length === 0" class="rounded-lg bg-bg-red px-4 py-6 text-sm text-text-secondary">
+                Nenhum grupo cadastrado.
+              </p>
+              <ul v-else class="max-h-80 divide-y divide-gray-200 overflow-y-auto">
+                <li v-for="group in groups" :key="group.id_grupo_a"
+                  class="flex min-w-0 items-center justify-between gap-3 py-3">
+                  <div class="min-w-0">
+                    <p class="break-words text-sm font-medium text-text-primary">{{ group.nome }}</p>
+                    <p class="break-words text-xs text-text-secondary">
+                      TA {{ group.numero_ta }} · {{ group.tipo }} · {{ group.setor }}
+                    </p>
+                  </div>
+                  <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-1 hover:bg-red-2"
+                    :aria-label="`Editar grupo ${group.nome}`" :title="`Editar grupo ${group.nome}`"
+                    @click="editGroup(group)">
+                    <Pencil :size="16" />
+                  </button>
+                </li>
+              </ul>
+            </section>
           </div>
-        </div>
-
-        <template #footer>
-          <Button variant="outline" @click="showAssetModal = false; editingAssetId = null">
-            Cancelar
-          </Button>
-          <Button variant="primary" @click="createAsset">
-            {{ editingAssetId === null ? 'Criar' : 'Salvar' }}
-          </Button>
-        </template>
-      </Modal>
+          <template #footer>
+            <Button variant="outline" size="sm" @click="showGroupModal = false; resetGroupForm()">Fechar</Button>
+          </template>
+        </Modal>
       </div>
 
       <div class="flex flex-wrap items-end gap-3">
@@ -553,72 +1127,324 @@ function handleRowAction({ action, row }) {
         </Button>
       </div>
 
-      <Table
-        :columns="columns"
-        :rows="filteredRows"
-        row-key="id"
-        @row-action="handleRowAction"
-      />
+      <Table :columns="columns" :rows="paginatedRows" row-key="id"
+        :actions="canManageAssets ? ['view', 'edit', 'delete'] : ['view']" @row-action="handleRowAction" />
+
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p class="text-sm text-text-secondary" aria-live="polite">
+          Mostrando {{ firstVisibleAsset }}–{{ lastVisibleAsset }} de {{ filteredRows.length }} ativos
+        </p>
+        <div class="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
+          <label class="flex items-center gap-2 text-sm text-text-secondary">
+            Ativos por página
+            <select v-model.number="assetPageSize"
+              class="rounded-lg bg-white px-2 py-2 text-sm text-text-primary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+              <option :value="5">5</option>
+              <option :value="10">10</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" aria-label="Página anterior" title="Página anterior"
+              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="assetCurrentPage === 1" @click="assetCurrentPage -= 1">
+              <ArrowLeft :size="16" />
+            </button>
+            <span class="min-w-20 text-center text-sm text-text-secondary">
+              {{ assetCurrentPage }} / {{ assetPageCount }}
+            </span>
+            <button type="button" aria-label="Próxima página" title="Próxima página"
+              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="assetCurrentPage >= assetPageCount" @click="assetCurrentPage += 1">
+              <ArrowRight :size="16" />
+            </button>
+          </div>
+        </div>
+      </div>
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
           <dl class="space-y-4 text-sm">
-            <div class="flex items-start justify-between gap-6">
-              <dt class="font-medium text-text-primary">Patrimônio</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.id }}</dd>
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
+              <dt class="font-medium text-text-primary">QR Code</dt>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.patrimony }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Nome</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.name }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.name }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Local de Origem</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.origin }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.origin }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Local Atual</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.current }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.current }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
-              <dt class="font-medium text-text-primary">Categoria</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.category }}</dd>
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
+              <dt class="font-medium text-text-primary">Grupo</dt>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.category }}</dd>
             </div>
-            <div class="flex items-start justify-between gap-6">
+            <div class="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,auto)_minmax(0,1fr)] sm:gap-6">
               <dt class="font-medium text-text-primary">Status</dt>
-              <dd class="text-right text-text-secondary">{{ selectedAsset.status }}</dd>
+              <dd class="break-words text-text-secondary sm:text-right">{{ selectedAsset.status }}</dd>
             </div>
             <div class="space-y-2">
               <dt class="font-medium text-text-primary">Descrição</dt>
-              <dd class="text-text-secondary">{{ selectedAsset.description }}</dd>
+              <dd class="break-words whitespace-pre-wrap text-text-secondary">{{ selectedAsset.description }}</dd>
             </div>
           </dl>
+
+          <section class="border-t border-gray-200 pt-4" aria-label="Histórico de movimentações">
+            <h3 class="text-base font-semibold text-text-primary">Histórico de movimentações</h3>
+            <p v-if="isLoadingAssetMovements" class="mt-3 text-sm text-text-secondary" role="status">
+              Carregando movimentações...
+            </p>
+            <p v-else-if="assetMovementsError" class="mt-3 text-sm text-red-primary" role="alert">
+              {{ assetMovementsError }}
+              <button class="ml-1 font-semibold underline" type="button" @click="loadSelectedAssetHistory(selectedAsset.id)">
+                Tentar novamente
+              </button>
+            </p>
+            <p v-else-if="selectedAssetMovements.length === 0" class="mt-3 text-sm text-text-secondary">
+              Nenhuma movimentação registrada para este ativo.
+            </p>
+            <ol v-else class="mt-3 max-h-56 space-y-3 overflow-y-auto pr-1">
+              <li v-for="movement in selectedAssetMovements" :key="movement.id_mov"
+                class="border-l-2 border-red-primary/30 pl-3">
+                <p class="text-sm font-semibold text-text-primary">
+                  {{ movement.usuario_detalhes?.nome || 'Usuário' }} · {{ formatMovementDate(movement.data_hora) }}
+                </p>
+                <p class="mt-1 text-sm text-text-secondary">Destino: {{ movement.local_m }}</p>
+                <p class="mt-1 break-words text-xs text-text-secondary">{{ movement.justificativa }}</p>
+              </li>
+            </ol>
+          </section>
         </div>
 
         <template #footer>
-          <Button variant="outline" @click="openAssetForm(selectedAsset)">
+          <Button v-if="canManageAssets" variant="outline" @click="openAssetForm(selectedAsset)">
             <Pencil :size="16" />
             Editar
           </Button>
-          <Button variant="primary">
+          <Button variant="primary" @click="openMovementForm(selectedAsset)">
             <ArrowRightLeft :size="16" />
             Movimentar
           </Button>
         </template>
       </Modal>
 
-      <ConfirmModal
-        v-model="showConfirmation"
-        :title="confirmationAction === 'delete-lab'
-          ? 'Excluir laboratório'
-          : confirmationAction === 'save-lab' ? 'Salvar laboratório' : 'Salvar ativo'"
-        :message="confirmationAction === 'delete-lab'
-          ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-          : confirmationAction === 'save-lab'
-            ? 'Tem certeza que deseja salvar as alterações deste laboratório?'
-            : 'Tem certeza que deseja salvar as alterações deste ativo?'"
-        :confirm-text="confirmationAction === 'delete-lab' ? 'Excluir' : 'Salvar'"
-        @confirm="confirmAction"
-      />
     </section>
+
+    <section v-else class="space-y-6" aria-labelledby="movements-title">
+      <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 id="movements-title" class="text-xl font-semibold text-text-primary">Histórico de movimentações</h1>
+          <p class="mt-1 text-sm text-text-secondary">Movimentações de todos os ativos disponíveis para sua conta.</p>
+        </div>
+        <div class="w-full sm:w-72">
+          <Searchbar v-model="movementSearchText" />
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" @click="openMovementForm()">
+            <ArrowRightLeft :size="18" />
+            Nova movimentação
+          </Button>
+          <button v-if="canClearMovementHistory && allMovementRecords.length"
+            class="inline-flex items-center gap-2 rounded-lg border border-red-primary px-3 py-2 text-sm font-semibold text-red-primary transition hover:bg-red-2"
+            type="button" @click="requestConfirmation('clear-movements')">
+            <Trash2 :size="16" /> Limpar histórico
+          </button>
+        </div>
+      </div>
+
+      <p v-if="clearMovementHistoryError" class="text-sm text-red-primary" role="alert">
+        {{ clearMovementHistoryError }}
+      </p>
+      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary" role="status">
+        Carregando movimentações...
+      </p>
+      <div v-else-if="movementHistoryError" class="rounded-lg bg-white px-4 py-6" role="alert">
+        <p class="text-sm text-red-primary">{{ movementHistoryError }}</p>
+        <button class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-primary hover:underline"
+          type="button" @click="loadMovementHistory">
+          <RefreshCw :size="16" /> Tentar novamente
+        </button>
+      </div>
+      <p v-else-if="allMovementRecords.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+        Nenhuma movimentação registrada.
+      </p>
+      <p v-else-if="filteredMovementRows.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+        Nenhuma movimentação corresponde à pesquisa.
+      </p>
+      <Table v-else :columns="movementColumns" :rows="filteredMovementRows" row-key="id" :actions="[]" />
+    </section>
+
+    <Modal v-model="showMovementModal" title="Movimentar ativo" size="md">
+      <div class="space-y-5">
+        <div v-if="selectedAsset" class="space-y-2">
+          <span class="text-sm font-medium text-text-primary">Ativo</span>
+          <p class="rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary">
+            {{ selectedAsset.name }} · {{ selectedAsset.patrimony }}
+          </p>
+        </div>
+        <div v-else class="space-y-2">
+          <label for="movement-asset" class="text-sm font-medium text-text-primary">
+            Ativo <span class="text-red-primary">*</span>
+          </label>
+          <select id="movement-asset" v-model.number="movementForm.assetId" required @change="selectMovementAsset"
+            class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+            <option disabled value="">Selecione um ativo</option>
+            <option v-for="asset in rows" :key="`movement-asset-${asset.id}`" :value="asset.id">
+              {{ asset.name }} · {{ asset.patrimony }} · {{ asset.current }}
+            </option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label for="movement-location" class="text-sm font-medium text-text-primary">
+            Novo local <span class="text-red-primary">*</span>
+          </label>
+          <select id="movement-location" v-model.number="movementForm.labId" required
+            class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+            <option disabled value="">Selecione um laboratório</option>
+            <option v-for="lab in labs" :key="`movement-${lab.id}`" :value="lab.id">
+              {{ lab.title }} - {{ lab.acronym }}
+            </option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label for="movement-justification" class="text-sm font-medium text-text-primary">
+            Justificativa <span class="text-red-primary">*</span>
+          </label>
+          <textarea id="movement-justification" v-model="movementForm.justification" rows="3" required
+            class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
+        </div>
+        <p v-if="movementValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+          {{ movementValidationMessage }}
+        </p>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="showMovementModal = false">Cancelar</Button>
+        <Button variant="primary" @click="submitMovement">Confirmar movimentação</Button>
+      </template>
+    </Modal>
+
+    <Modal v-model="showLabDeletionErrorModal" title="Não é possível excluir o laboratório" size="md">
+      <div class="space-y-4">
+        <div class="flex items-start gap-3 rounded-xl bg-bg-red p-4 text-sm text-text-primary">
+          <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+          <p>{{ labDeletionErrorMessage }}</p>
+        </div>
+
+        <section v-if="labDeletionDependencies.ativos?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ativos vinculados ({{ labDeletionDependencies.ativos.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="asset in labDeletionDependencies.ativos" :key="asset.id_ativos"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">{{ asset.nome }}</p>
+              <p class="text-text-secondary">Patrimônio: {{ asset.qr_code || 'Não informado' }}</p>
+            </li>
+          </ul>
+        </section>
+
+        <section v-if="labDeletionDependencies.ordens_servico?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ordens de serviço vinculadas ({{ labDeletionDependencies.ordens_servico.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="order in labDeletionDependencies.ordens_servico" :key="order.id_ordem"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">OS #{{ order.id_ordem }} · {{ order.titulo }}</p>
+              <p class="text-text-secondary">{{ order.status }} · {{ formatMovementDate(order.data_hora) }}</p>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <template #footer>
+        <Button variant="outline" size="sm" @click="showLabDeletionErrorModal = false">
+          Fechar
+        </Button>
+        <Button variant="primary" size="sm" @click="goToAssetsFromLabDeletionError">
+          Ir para ativos
+        </Button>
+      </template>
+    </Modal>
+
+    <Modal v-model="showAssetDeletionErrorModal" title="Ativo com vínculos" size="lg">
+      <div class="space-y-4">
+        <div class="flex items-start gap-3 rounded-xl bg-bg-red p-4 text-sm text-text-primary">
+          <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+          <p>{{ assetDeletionErrorMessage }}</p>
+        </div>
+
+        <section v-if="assetDeletionDependencies.movimentacoes?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Movimentações ({{ assetDeletionDependencies.movimentacoes.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="movement in assetDeletionDependencies.movimentacoes" :key="movement.id_mov"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">
+                Movimentação #{{ movement.id_mov }} · {{ formatMovementDate(movement.data_hora) }}
+                · {{ movement.local_m }}
+              </p>
+              <p class="mt-1 text-text-secondary">{{ movement.justificativa }}</p>
+            </li>
+          </ul>
+        </section>
+
+        <section v-if="assetDeletionDependencies.ordens_servico?.length" class="space-y-2">
+          <h3 class="text-sm font-semibold text-text-primary">
+            Ordens de serviço ({{ assetDeletionDependencies.ordens_servico.length }})
+          </h3>
+          <ul class="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-gray-200 p-3 text-sm">
+            <li v-for="order in assetDeletionDependencies.ordens_servico" :key="order.id_ordem"
+              class="border-b border-gray-100 pb-2 last:border-0 last:pb-0">
+              <p class="font-medium text-text-primary">
+                OS #{{ order.id_ordem }} · {{ order.titulo }}
+              </p>
+              <p class="text-text-secondary">
+                {{ order.status }} · {{ formatMovementDate(order.data_hora) }}
+              </p>
+            </li>
+          </ul>
+        </section>
+
+        <p v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+          class="rounded-lg border border-red-primary/30 p-3 text-sm text-text-primary" role="note">
+          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço permanecerão cadastradas.
+        </p>
+      </div>
+
+      <template #footer>
+        <Button variant="outline" size="sm" @click="showAssetDeletionErrorModal = false">
+          Fechar
+        </Button>
+        <Button v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+          variant="primary" size="sm" @click="forceDeletePendingAsset">
+          Excluir mesmo assim
+        </Button>
+      </template>
+    </Modal>
+
+    <ConfirmModal v-model="showConfirmation" :title="confirmationAction === 'delete-asset'
+      ? 'Excluir ativo'
+      : confirmationAction === 'delete-lab'
+        ? 'Excluir laboratório'
+      : confirmationAction === 'clear-movements'
+        ? 'Limpar histórico de movimentações'
+        : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
+        ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+        : confirmationAction === 'delete-asset'
+          ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
+        : confirmationAction === 'clear-movements'
+          ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
+          : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+      :confirm-text="confirmationAction === 'delete-asset' || confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
+      @confirm="confirmAction" />
   </main>
 </template>

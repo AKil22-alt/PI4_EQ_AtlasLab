@@ -35,6 +35,19 @@ class Usuario(models.Model):
         return self.nome
 
 
+class SolicitacaoCadastro(models.Model):
+    nome = models.CharField(max_length=150)
+    email = models.EmailField(max_length=254, unique=True)
+    senha_hash = models.CharField(max_length=128)
+    criada_em = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["criada_em"]
+
+    def __str__(self):
+        return f"Solicitação de cadastro: {self.email}"
+
+
 class GrupoA(models.Model):
     id_grupo_a = models.AutoField(primary_key=True)
     nome = models.CharField(max_length=100)
@@ -82,13 +95,14 @@ class Ativo(models.Model):
     # Identificador único que pode ser codificado como QR Code no app.
     qr_code = models.CharField(max_length=150, unique=True, blank=True)
     status = models.BooleanField(default=True)
-    local_origem = models.CharField(max_length=100)
-    local_atual = models.CharField(max_length=100)
+    local_origem = models.ForeignKey(
+        SalaLab, on_delete=models.PROTECT, related_name="ativos_origem"
+    )
+    local_atual = models.ForeignKey(
+        SalaLab, on_delete=models.PROTECT, related_name="ativos_atuais"
+    )
     descricao = models.TextField(blank=True, null=True)
     grupo = models.ForeignKey(GrupoA, on_delete=models.PROTECT, related_name="ativos")
-    sala = models.ForeignKey(
-        SalaLab, on_delete=models.SET_NULL, null=True, blank=True, related_name="ativos"
-    )
     criado_em = models.DateTimeField(default=timezone.now, editable=False)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -112,6 +126,7 @@ class OrdemServico(models.Model):
     descricao = models.TextField()
     titulo = models.CharField(max_length=100)
     data_hora = models.DateTimeField(default=timezone.now)
+    data_termino = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ABERTA)
     usuarios = models.ManyToManyField(Usuario, through="OSUser", related_name="ordens_servico")
     salas = models.ManyToManyField(SalaLab, through="OSSalaLab", related_name="ordens_servico")

@@ -40,23 +40,25 @@ function confirm() {
 </script>
 
 <template>
-  <div
-    v-if="modelValue"
-    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
-    :style="{ paddingLeft: 'var(--sidebar-width, 0px)' }"
-    @click.self="close"
-  >
+  <div v-if="modelValue" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+    :style="{ paddingLeft: 'var(--sidebar-width, 0px)' }" @click.self="close">
     <div class="w-full max-w-md">
-      <section class="rounded-3xl bg-white px-8 py-7 shadow-xl" role="dialog" aria-modal="true" :aria-label="confirmationTitle">
-        <h2 class="text-lg font-semibold leading-tight text-text-primary">{{ message }}</h2>
+      <section class="rounded-3xl bg-white px-8 py-7 shadow-xl" role="dialog" aria-modal="true"
+        :aria-label="confirmationTitle">
+        <p class="text-xs font-semibold uppercase tracking-wide text-red-primary">{{ confirmationTitle }}</p>
+        <h2 class="mt-2 text-lg font-semibold leading-tight text-text-primary">{{ message }}</h2>
 
-        <footer class="mt-8 flex items-center justify-between">
-      <Button variant="outline" size="sm" @click="close">
-        {{ cancelText }}
-      </Button>
-      <Button variant="primary" size="sm" @click="confirm">
-        {{ confirmText }}
-      </Button>
+        <div v-if="$slots.default" class="mt-5">
+          <slot />
+        </div>
+
+        <footer class="mt-8 flex items-center justify-between gap-4">
+          <Button variant="outline" size="sm" @click="close">
+            {{ cancelText }}
+          </Button>
+          <Button variant="primary" size="sm" @click="confirm">
+            {{ confirmText }}
+          </Button>
         </footer>
       </section>
     </div>

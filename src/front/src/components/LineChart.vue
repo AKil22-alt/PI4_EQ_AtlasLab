@@ -72,7 +72,8 @@ const chartData = computed(() => ({
 
 const chartOptions = computed(() => {
 	const highestValue = Math.max(...props.values.map(Number), 0);
-	const suggestedMax = Math.max(Math.ceil(highestValue / 5) * 5, 5);
+	const tickStep = highestValue <= 5 ? 1 : Math.ceil(highestValue / 5);
+	const suggestedMax = Math.max(Math.ceil(highestValue / tickStep) * tickStep, tickStep);
 
 	return {
 		responsive: true,
@@ -96,7 +97,14 @@ const chartOptions = computed(() => {
 				enabled: true
 			},
 			datalabels: {
-				display: false
+				display: true,
+				align: 'top',
+				anchor: 'end',
+				color: getCssColor('--color-dark-red', '#640509'),
+				font: {
+					family: 'Montserrat',
+					size: 11
+				}
 			}
 		},
 		scales: {
@@ -123,7 +131,7 @@ const chartOptions = computed(() => {
 				suggestedMax,
 				ticks: {
 					display: true,
-					stepSize: 5,
+					stepSize: tickStep,
 					color: getCssColor('--color-text-placeholder', '#AAAAAA'),
 					font: {
 						family: 'Montserrat',

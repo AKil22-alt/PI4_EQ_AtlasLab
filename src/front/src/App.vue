@@ -4,12 +4,16 @@ import { ref } from 'vue'
 
 import Navbar from './components/Navbar.vue'
 import Sidebar from './components/Sidebar.vue'
+import LoadingOverlay from './components/LoadingOverlay.vue'
+import { apiLoadingCount } from './services/api'
 
 // Controla a abertura e o fechamento da Sidebar no layout principal.
 const sidebarOpen = ref(true)
 </script>
 
 <template>
+  <LoadingOverlay v-if="apiLoadingCount > 0" />
+
   <!-- A tela de login não usa o layout administrativo com Navbar e Sidebar. -->
   <div v-if="$route.name !== 'Login'" class="flex min-h-screen">
     <!-- A prop open informa à Sidebar se ela deve estar aberta ou fechada. -->
