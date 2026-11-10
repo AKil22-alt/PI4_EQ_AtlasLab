@@ -219,6 +219,26 @@ class ApiViewsTests(TestCase):
         self.assertEqual(log.acao, "MOVIMENTAR")
         self.assertEqual(log.detalhes["local_anterior"], "Laboratório 1")
 
+    def test_only_admin_can_permanently_clear_movement_history(self):
+        MovimentacoesA.objects.create(
+            justificativa="Transferência para testes",
+            local_m=self.sala.localizacao,
+            usuario=self.colaborador,
+            ativo=self.ativo,
+        )
+
+        denied = self.authenticate(self.colaborador).delete("/api/movimentacoes/limpar-historico/")
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(MovimentacoesA.objects.count(), 1)
+
+        response = self.authenticate(self.admin).delete("/api/movimentacoes/limpar-historico/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"removidas": 1})
+        self.assertEqual(MovimentacoesA.objects.count(), 0)
+        log = LogAcao.objects.get(acao="LIMPAR_HISTORICO")
+        self.assertEqual(log.detalhes["quantidade"], 1)
+
     def test_asset_crud_uses_qr_group_location_and_room_fields(self):
         client = self.authenticate(self.admin)
         sala = SalaLab.objects.create(

@@ -231,8 +231,8 @@ function openEditForm(order) {
 }
 
 function createOrder() {
-	if (!orderForm.title.trim() || !orderForm.openingDate || !orderForm.description.trim() || !orderForm.sector || !orderForm.lab || !orderForm.asset) {
-		formError.value = 'Preencha título, início, descrição, setor, ativo e laboratório.'
+	if (!orderForm.title.trim() || !orderForm.openingDate || !orderForm.description.trim() || !orderForm.sector || !orderForm.lab || !orderForm.asset || !orderForm.status) {
+		formError.value = 'Preencha título, início, descrição, setor, ativo, laboratório e status.'
 		return
 	}
 	if (isEditing.value) {

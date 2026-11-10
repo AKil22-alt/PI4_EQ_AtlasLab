@@ -226,3 +226,9 @@ export function moveAssetRequest(assetId, movement) {
         body: JSON.stringify(movement)
     })
 }
+
+export function clearMovementHistoryRequest() {
+    return apiRequest('/movimentacoes/limpar-historico/', {
+        method: 'DELETE'
+    })
+}

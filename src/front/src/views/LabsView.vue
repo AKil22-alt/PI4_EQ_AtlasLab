@@ -14,14 +14,15 @@ import {
   createAssetRequest,
   updateAssetRequest,
   moveAssetRequest,
-  listAllPagesRequest
+  listAllPagesRequest,
+  clearMovementHistoryRequest
 } from '../services/api'
 import Table from '../components/Table.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -35,6 +36,7 @@ const allMovementRecords = ref([])
 const movementHistory = ref({ labels: [], values: [] })
 const isLoadingMovementHistory = ref(false)
 const movementHistoryError = ref('')
+const clearMovementHistoryError = ref('')
 const selectedAssetMovements = ref([])
 const isLoadingAssetMovements = ref(false)
 const assetMovementsError = ref('')
@@ -44,6 +46,7 @@ const groups = reactive([])
 const laboratoryResponsibles = reactive([])
 const canManageLabs = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
 const canManageAssets = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
+const canClearMovementHistory = computed(() => authStore.currentUser?.cargo === 'ADM')
 
 const movementColumns = [
   { key: 'date', label: 'Data e hora', width: '16%' },
@@ -245,6 +248,8 @@ const editingGroupId = ref(null)
 const pendingLabId = ref(null)
 const labValidationMessage = ref('')
 const groupValidationMessage = ref('')
+const assetValidationMessage = ref('')
+const movementValidationMessage = ref('')
 const showLabDeletionErrorModal = ref(false)
 const labDeletionErrorMessage = ref('')
 
@@ -329,6 +334,7 @@ function resetAssetForm() {
   assetForm.group = ''
   assetForm.status = 'Ativo'
   assetForm.description = ''
+  assetValidationMessage.value = ''
 }
 
 function resetGroupForm() {
@@ -474,6 +480,7 @@ async function saveLab() {
 
 function openAssetForm(asset = null) {
   showDetailsModal.value = false
+  assetValidationMessage.value = ''
   editingAssetId.value = asset?.id ?? null
   assetForm.qrCode = asset?.patrimony ?? ''
   assetForm.name = asset?.name ?? ''
@@ -492,9 +499,16 @@ function openAssetForm(asset = null) {
 async function createAsset() {
   const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
   const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
-  if (!assetForm.name.trim() || !originLab || !currentLab || !assetForm.group) {
+  const missingFields = []
+  if (!assetForm.name.trim()) missingFields.push('nome')
+  if (!originLab) missingFields.push('local de origem')
+  if (!currentLab) missingFields.push('local atual')
+  if (!assetForm.group) missingFields.push('grupo')
+  if (missingFields.length) {
+    assetValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
     return
   }
+  assetValidationMessage.value = ''
 
   if (editingAssetId.value !== null) {
     requestConfirmation('save-asset')
@@ -526,7 +540,16 @@ async function saveAsset() {
   if (!asset) return
   const originLab = labs.find((lab) => String(lab.id) === String(assetForm.originLab))
   const currentLab = labs.find((lab) => String(lab.id) === String(assetForm.currentLab))
-  if (!originLab || !currentLab || !assetForm.group) return
+  const missingFields = []
+  if (!assetForm.name.trim()) missingFields.push('nome')
+  if (!originLab) missingFields.push('local de origem')
+  if (!currentLab) missingFields.push('local atual')
+  if (!assetForm.group) missingFields.push('grupo')
+  if (missingFields.length) {
+    assetValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
+    return
+  }
+  assetValidationMessage.value = ''
 
   try {
     const updatedAsset = await updateAssetRequest(asset.id, {
@@ -550,6 +573,7 @@ async function saveAsset() {
 function openMovementForm(asset = null) {
   selectedAsset.value = asset
   showDetailsModal.value = false
+  movementValidationMessage.value = ''
   movementForm.assetId = asset?.id ?? ''
   movementForm.labId = asset?.currentLabId ?? asset?.roomId ?? ''
   movementForm.justification = ''
@@ -565,7 +589,15 @@ async function submitMovement() {
   const assetId = selectedAsset.value?.id ?? movementForm.assetId
   const asset = rows.find((item) => String(item.id) === String(assetId))
   const lab = labs.find((item) => String(item.id) === String(movementForm.labId))
-  if (!asset || !lab || !movementForm.justification.trim()) return
+  const missingFields = []
+  if (!asset) missingFields.push('ativo')
+  if (!lab) missingFields.push('novo local')
+  if (!movementForm.justification.trim()) missingFields.push('justificativa')
+  if (missingFields.length) {
+    movementValidationMessage.value = `Preencha os campos obrigatórios: ${missingFields.join(', ')}.`
+    return
+  }
+  movementValidationMessage.value = ''
 
   try {
     await moveAssetRequest(asset.id, {
@@ -591,6 +623,7 @@ async function submitMovement() {
 
 function requestConfirmation(action) {
   confirmationAction.value = action
+  if (action === 'clear-movements') clearMovementHistoryError.value = ''
   showConfirmation.value = true
 }
 
@@ -608,6 +641,19 @@ async function confirmAction() {
   const action = confirmationAction.value
 
   if (action === 'save-asset') await saveAsset()
+
+  if (action === 'clear-movements') {
+    try {
+      await clearMovementHistoryRequest()
+      allMovementRecords.value = []
+      movementHistory.value = buildMovementHistory([])
+      selectedAssetMovements.value = []
+      movementHistoryError.value = ''
+      clearMovementHistoryError.value = ''
+    } catch (error) {
+      clearMovementHistoryError.value = error.message || 'Não foi possível limpar o histórico.'
+    }
+  }
 
   if (action === 'delete-lab') {
     try {
@@ -883,6 +929,9 @@ function handleRowAction({ action, row }) {
               <textarea id="asset-description" v-model="assetForm.description" rows="4" placeholder="Descreva o ativo"
                 class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
             </div>
+            <p v-if="assetValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+              {{ assetValidationMessage }}
+            </p>
           </div>
 
           <template #footer>
@@ -1103,12 +1152,22 @@ function handleRowAction({ action, row }) {
         <div class="w-full sm:w-72">
           <Searchbar v-model="movementSearchText" />
         </div>
-        <Button variant="primary" size="sm" @click="openMovementForm()">
-          <ArrowRightLeft :size="18" />
-          Nova movimentação
-        </Button>
+        <div class="flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" @click="openMovementForm()">
+            <ArrowRightLeft :size="18" />
+            Nova movimentação
+          </Button>
+          <button v-if="canClearMovementHistory && allMovementRecords.length"
+            class="inline-flex items-center gap-2 rounded-lg border border-red-primary px-3 py-2 text-sm font-semibold text-red-primary transition hover:bg-red-2"
+            type="button" @click="requestConfirmation('clear-movements')">
+            <Trash2 :size="16" /> Limpar histórico
+          </button>
+        </div>
       </div>
 
+      <p v-if="clearMovementHistoryError" class="text-sm text-red-primary" role="alert">
+        {{ clearMovementHistoryError }}
+      </p>
       <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary" role="status">
         Carregando movimentações...
       </p>
@@ -1167,6 +1226,9 @@ function handleRowAction({ action, row }) {
           <textarea id="movement-justification" v-model="movementForm.justification" rows="3" required
             class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
         </div>
+        <p v-if="movementValidationMessage" class="text-sm font-medium text-red-primary" role="alert">
+          {{ movementValidationMessage }}
+        </p>
       </div>
       <template #footer>
         <Button variant="outline" @click="showMovementModal = false">Cancelar</Button>
@@ -1192,10 +1254,14 @@ function handleRowAction({ action, row }) {
 
     <ConfirmModal v-model="showConfirmation" :title="confirmationAction === 'delete-lab'
       ? 'Excluir laboratório'
-      : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
+      : confirmationAction === 'clear-movements'
+        ? 'Limpar histórico de movimentações'
+        : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
         ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-        : 'Tem certeza que deseja salvar as alterações deste ativo?'"
-      :confirm-text="confirmationAction === 'delete-lab' ? 'Excluir' : 'Salvar'"
+        : confirmationAction === 'clear-movements'
+          ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
+          : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+      :confirm-text="confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
       @confirm="confirmAction" />
   </main>
 </template>

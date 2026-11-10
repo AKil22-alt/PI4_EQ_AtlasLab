@@ -515,11 +515,15 @@ class MovimentacoesAViewSet(AuditedModelViewSet):
     ).all().order_by("-data_hora", "-id_mov")
     serializer_class = MovimentacoesASerializer
     lookup_field = "id_mov"
-    http_method_names = ["get", "post", "head", "options"]
+    http_method_names = ["get", "post", "delete", "head", "options"]
     roles_create = TODOS
     roles_write = TODOS
     entity_name = "MovimentacoesA"
     search_fields = ["justificativa", "local_m", "ativo__nome", "ativo__qr_code"]
+
+    def get_permissions(self):
+        self.action_roles = {"limpar_historico": ADMIN}
+        return super().get_permissions()
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -550,6 +554,18 @@ class MovimentacoesAViewSet(AuditedModelViewSet):
                 ativo.pk,
                 {"local_anterior": local_anterior, "local_atual": ativo.local_atual.localizacao},
             )
+
+    @action(detail=False, methods=["delete"], url_path="limpar-historico")
+    def limpar_historico(self, request):
+        with transaction.atomic():
+            removidas, _ = MovimentacoesA.objects.all().delete()
+            registrar_acao(
+                request,
+                "LIMPAR_HISTORICO",
+                self.entity_name,
+                detalhes={"quantidade": removidas},
+            )
+        return Response({"removidas": removidas}, status=status.HTTP_200_OK)
 
 
 class DenunciaFViewSet(AuditedModelViewSet):
