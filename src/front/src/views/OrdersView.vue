@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import Table from '../components/Table.vue'
 import Button from '../components/Button.vue'
 import Searchbar from '../components/Searchbar.vue'
@@ -46,6 +47,7 @@ const statusLabels = {
 	CANCELADA: 'Cancelado'
 }
 const authStore = useAuthStore()
+const route = useRoute()
 const canManageOrders = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
 
 function mapServiceOrder(order) {
@@ -111,9 +113,14 @@ async function loadFormOptions() {
 	}
 }
 
-onMounted(() => {
-	loadOrders()
-	loadFormOptions()
+onMounted(async () => {
+	await Promise.all([loadOrders(), loadFormOptions()])
+	const orderId = Number(route.query.orderId)
+	const order = rows.find((item) => item.id === orderId)
+	if (order) {
+		selectedOrder.value = order
+		showDetailsModal.value = true
+	}
 })
 const showCreateModal = ref(false)
 const showDetailsModal = ref(false)

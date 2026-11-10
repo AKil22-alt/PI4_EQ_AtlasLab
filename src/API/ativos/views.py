@@ -132,6 +132,7 @@ class DashboardView(APIView):
         suffix = f" #{log.entidade_id}" if log.entidade_id else ""
         return {
             "id": log.pk,
+            "entity_id": log.entidade_id,
             "title": f"{actor} {verb} {entity}{suffix}",
             "created_at": log.criado_em,
             "type": log.entidade,

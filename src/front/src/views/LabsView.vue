@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   createLaboratoryRequest,
   listLaboratoriesRequest,
@@ -28,6 +29,7 @@ import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
+const route = useRoute()
 const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
@@ -207,6 +209,24 @@ onMounted(async () => {
   }
 
   await loadMovementHistory()
+
+  if (['labs', 'assets', 'movements'].includes(route.query.tab)) {
+    activeTab.value = route.query.tab
+  }
+
+  if (route.query.assetId) {
+    const asset = rows.find((item) => String(item.id) === String(route.query.assetId))
+    if (asset) handleRowAction({ action: 'view', row: asset })
+  }
+
+  if (route.query.labId) {
+    const lab = labs.find((item) => String(item.id) === String(route.query.labId))
+    if (lab) openLabDetails(lab)
+  }
+
+  if (route.query.movementId) {
+    movementSearchText.value = String(route.query.movementId)
+  }
 })
 
 const filteredLabs = computed(() => {

@@ -44,15 +44,15 @@ function formatActivityTime(value) {
 }
 
 const activityTargets = {
-    Ativo: { icon: Package, to: '/labs' },
-    OrdemServico: { icon: ClipboardCheck, to: '/orders' },
-    SalaLab: { icon: FlaskConical, to: '/labs' },
-    Usuario: { icon: Users, to: '/users' },
-    GrupoA: { icon: Package, to: '/labs' },
-    ManutencaoA: { icon: ClipboardCheck, to: '/orders' },
-    MovimentacoesA: { icon: Package, to: '/labs' },
+    Ativo: { icon: Package, to: (id) => ({ path: '/labs', query: { tab: 'assets', assetId: id } }) },
+    OrdemServico: { icon: ClipboardCheck, to: (id) => ({ path: '/orders', query: { orderId: id } }) },
+    SalaLab: { icon: FlaskConical, to: (id) => ({ path: '/labs', query: { tab: 'labs', labId: id } }) },
+    Usuario: { icon: Users, to: (id) => ({ path: '/users', query: { userId: id } }) },
+    GrupoA: { icon: Package, to: () => ({ path: '/labs', query: { tab: 'assets' } }) },
+    ManutencaoA: { icon: ClipboardCheck, to: () => ({ path: '/orders' }) },
+    MovimentacoesA: { icon: Package, to: (id) => ({ path: '/labs', query: { tab: 'movements', movementId: id } }) },
     DenunciaF: { icon: ClipboardList },
-    SolicitacaoCadastro: { icon: Users, to: '/users?tab=requests' }
+    SolicitacaoCadastro: { icon: Users, to: (id) => ({ path: '/users', query: { tab: 'requests', requestId: id } }) }
 }
 
 async function loadDashboard() {
@@ -74,7 +74,8 @@ async function loadDashboard() {
                 id: activity.id,
                 title: activity.title,
                 time: formatActivityTime(activity.created_at),
-                ...target
+                icon: target.icon,
+                ...(target.to ? { to: target.to(activity.entity_id) } : {})
             }
         })
     } catch (error) {

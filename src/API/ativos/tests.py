@@ -87,6 +87,7 @@ class ApiViewsTests(TestCase):
         })
         activity = response.data["recent_activities"][0]
         self.assertEqual(activity["title"], f"Colaborador Atlas movimentou Ativo #{self.ativo.pk}")
+        self.assertEqual(activity["entity_id"], str(self.ativo.pk))
         self.assertNotIn("ip", activity)
         self.assertNotIn("detalhes", activity)
         self.assertEqual(APIClient().get("/api/dashboard/").status_code, 401)

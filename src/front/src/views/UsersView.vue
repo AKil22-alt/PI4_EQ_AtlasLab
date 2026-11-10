@@ -49,8 +49,13 @@ const requests = computed(() => authStore.pendingRequests)
 const isAdmin = computed(() => authStore.currentUser?.cargo === 'ADM')
 const userActions = computed(() => isAdmin.value ? ['edit', 'delete'] : [])
 
-watch(() => [route.query.tab, route.query.requestId], async () => {
+watch(() => [route.query.tab, route.query.requestId, route.query.userId], async () => {
 	if (route.query.tab === 'requests') activeTab.value = 'requests'
+	if (route.query.userId) {
+		activeTab.value = 'users'
+		const user = authStore.users.find((item) => String(item.id_user) === String(route.query.userId))
+		if (user) searchText.value = user.nome
+	}
 	const requestId = Number(route.query.requestId)
 	focusedRequestId.value = Number.isInteger(requestId) && requestId > 0 ? requestId : null
 
@@ -72,6 +77,11 @@ onMounted(async () => {
 		if (isAdmin.value) await authStore.loadAdminData()
 	} catch {
 		// A API informa a permissão necessária quando a sessão não é administrativa.
+	}
+
+	if (route.query.userId) {
+		const user = authStore.users.find((item) => String(item.id_user) === String(route.query.userId))
+		if (user) searchText.value = user.nome
 	}
 
 	if (focusedRequestId.value) {
