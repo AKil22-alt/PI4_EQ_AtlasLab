@@ -61,6 +61,36 @@ class ApiViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, {"status": "ok"})
 
+    def test_dashboard_returns_aggregates_and_safe_recent_activity_to_colaborador(self):
+        LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="MOVIMENTAR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+            detalhes={"local_anterior": "Interno"},
+            ip="192.0.2.1",
+        )
+
+        response = self.authenticate(self.colaborador).get("/api/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["totals"], {
+            "users": 2,
+            "laboratories": 1,
+            "assets": 1,
+            "service_orders": 0,
+        })
+        self.assertEqual(sum(response.data["weekly_activity"]["values"]), 1)
+        self.assertEqual(response.data["asset_distribution"], {
+            "labels": ["Laboratório 1"],
+            "values": [1],
+        })
+        activity = response.data["recent_activities"][0]
+        self.assertEqual(activity["title"], f"Colaborador Atlas movimentou Ativo #{self.ativo.pk}")
+        self.assertNotIn("ip", activity)
+        self.assertNotIn("detalhes", activity)
+        self.assertEqual(APIClient().get("/api/dashboard/").status_code, 401)
+
     def test_login_issues_token_accepted_by_me_endpoint(self):
         client = APIClient()
         response = client.post(

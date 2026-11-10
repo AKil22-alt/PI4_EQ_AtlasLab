@@ -5,6 +5,8 @@ from io import BytesIO
 import qrcode
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -55,6 +57,85 @@ class HealthView(APIView):
 
     def get(self, request):
         return Response({"status": "ok"})
+
+
+class DashboardView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_read = TODOS
+
+    def get(self, request):
+        today = timezone.localdate()
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=7)
+        activity_logs = LogAcao.objects.exclude(acao__in=["LOGIN", "LOGOUT"])
+
+        weekly_counts = activity_logs.filter(
+            criado_em__date__gte=week_start,
+            criado_em__date__lt=week_end,
+        ).annotate(day=TruncDate("criado_em")).values("day").annotate(total=Count("id"))
+        weekly_values = [0] * 7
+        for item in weekly_counts:
+            day_index = (item["day"] - week_start).days
+            weekly_values[day_index] = item["total"]
+
+        asset_distribution = Ativo.objects.values(
+            "local_atual__localizacao"
+        ).annotate(total=Count("id_ativos")).order_by("local_atual__localizacao")
+        recent_activities = [
+            self._serialize_activity(log)
+            for log in activity_logs.select_related("usuario")[:4]
+        ]
+
+        return Response({
+            "totals": {
+                "users": Usuario.objects.count(),
+                "laboratories": SalaLab.objects.count(),
+                "assets": Ativo.objects.count(),
+                "service_orders": OrdemServico.objects.count(),
+            },
+            "weekly_activity": {
+                "labels": ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+                "values": weekly_values,
+            },
+            "asset_distribution": {
+                "labels": [item["local_atual__localizacao"] for item in asset_distribution],
+                "values": [item["total"] for item in asset_distribution],
+            },
+            "recent_activities": recent_activities,
+        })
+
+    @staticmethod
+    def _serialize_activity(log):
+        actor = log.usuario.nome if log.usuario else "Usuário"
+        entity_names = {
+            "Ativo": "Ativo",
+            "OrdemServico": "Ordem de Serviço",
+            "SalaLab": "Laboratório",
+            "Usuario": "Usuário",
+            "GrupoA": "Grupo de Ativos",
+            "ManutencaoA": "Manutenção",
+            "MovimentacoesA": "Movimentação",
+            "DenunciaF": "Denúncia",
+            "SolicitacaoCadastro": "Solicitação de Cadastro",
+        }
+        action_verbs = {
+            "CRIAR": "criou",
+            "ATUALIZAR": "atualizou",
+            "EXCLUIR": "removeu",
+            "MOVIMENTAR": "movimentou",
+            "ATIVAR": "ativou",
+            "INATIVAR": "inativou",
+            "APROVAR": "aprovou",
+        }
+        entity = entity_names.get(log.entidade, log.entidade)
+        verb = action_verbs.get(log.acao, "registrou uma ação em")
+        suffix = f" #{log.entidade_id}" if log.entidade_id else ""
+        return {
+            "id": log.pk,
+            "title": f"{actor} {verb} {entity}{suffix}",
+            "created_at": log.criado_em,
+            "type": log.entidade,
+        }
 
 
 class LoginView(APIView):
