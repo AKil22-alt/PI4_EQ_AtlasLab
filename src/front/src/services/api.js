@@ -202,6 +202,12 @@ export function updateAssetRequest(assetId, asset) {
     })
 }
 
+export function deleteAssetRequest(assetId) {
+    return apiRequest(`/ativos/${assetId}/`, {
+        method: 'DELETE'
+    })
+}
+
 export function listAssetGroupsRequest() {
     return apiRequest('/grupos/')
 }

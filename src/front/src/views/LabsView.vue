@@ -7,7 +7,7 @@ import {
   listLaboratoryResponsiblesRequest,
   updateLaboratoryRequest,
   deleteLaboratoryRequest,
-  listAssetsRequest,
+  deleteAssetRequest,
   assetHistoryRequest,
   listAssetGroupsRequest,
   createAssetGroupRequest,
@@ -35,7 +35,6 @@ const searchText = ref('')
 const assetSearchText = ref('')
 const movementSearchText = ref('')
 const allMovementRecords = ref([])
-const movementHistory = ref({ labels: [], values: [] })
 const isLoadingMovementHistory = ref(false)
 const movementHistoryError = ref('')
 const clearMovementHistoryError = ref('')
@@ -76,28 +75,6 @@ const filteredMovementRows = computed(() => {
     .some((value) => String(value).toLowerCase().includes(query)))
 })
 
-function buildMovementHistory(movements) {
-  const days = Array.from({ length: 10 }, (_, index) => {
-    const date = new Date()
-    date.setHours(0, 0, 0, 0)
-    date.setDate(date.getDate() - (9 - index))
-    return date
-  })
-  const dailyTotals = new Map(days.map((date) => [date.toLocaleDateString('sv-SE'), 0]))
-
-  movements.forEach((movement) => {
-    const dateKey = movement.data_hora?.slice(0, 10)
-    if (dailyTotals.has(dateKey)) {
-      dailyTotals.set(dateKey, dailyTotals.get(dateKey) + Number(movement.contagem_mov_a ?? 1))
-    }
-  })
-
-  return {
-    labels: days.map((date) => date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })),
-    values: days.map((date) => dailyTotals.get(date.toLocaleDateString('sv-SE')))
-  }
-}
-
 async function loadMovementHistory() {
   isLoadingMovementHistory.value = true
   movementHistoryError.value = ''
@@ -107,7 +84,6 @@ async function loadMovementHistory() {
     allMovementRecords.value = movements.sort(
       (first, second) => new Date(second.data_hora) - new Date(first.data_hora)
     )
-    movementHistory.value = buildMovementHistory(movements)
   } catch (error) {
     console.error('Erro ao carregar histórico de movimentações:', error)
     movementHistoryError.value = 'Não foi possível carregar o histórico de movimentações. Tente novamente.'
@@ -195,8 +171,8 @@ onMounted(async () => {
   }
 
   try {
-    const assets = await listAssetsRequest()
-    rows.push(...(Array.isArray(assets) ? assets : assets.results).map(mapAsset))
+    const assets = await listAllPagesRequest('/ativos/')
+    rows.push(...assets.map(mapAsset))
   } catch (error) {
     console.error('Erro ao carregar ativos:', error)
   }
@@ -251,6 +227,12 @@ const columns = [
 ]
 
 const rows = reactive([])
+const assetCountsByLab = computed(() => ({
+  labels: labs.map((lab) => lab.title || lab.acronym),
+  values: labs.map((lab) => rows.filter(
+    (asset) => String(asset.currentLabId) === String(lab.id)
+  ).length)
+}))
 
 const showLabModal = ref(false)
 const showLabDetailsModal = ref(false)
@@ -266,12 +248,15 @@ const editingLabId = ref(null)
 const editingAssetId = ref(null)
 const editingGroupId = ref(null)
 const pendingLabId = ref(null)
+const pendingAssetId = ref(null)
 const labValidationMessage = ref('')
 const groupValidationMessage = ref('')
 const assetValidationMessage = ref('')
 const movementValidationMessage = ref('')
 const showLabDeletionErrorModal = ref(false)
 const labDeletionErrorMessage = ref('')
+const showAssetDeletionErrorModal = ref(false)
+const assetDeletionErrorMessage = ref('')
 
 const labForm = reactive({
   acronym: '',
@@ -652,6 +637,11 @@ function requestLabDeletion(lab) {
   requestConfirmation('delete-lab')
 }
 
+function requestAssetDeletion(asset) {
+  pendingAssetId.value = asset.id
+  requestConfirmation('delete-asset')
+}
+
 function goToAssetsFromLabDeletionError() {
   showLabDeletionErrorModal.value = false
   activeTab.value = 'assets'
@@ -666,12 +656,30 @@ async function confirmAction() {
     try {
       await clearMovementHistoryRequest()
       allMovementRecords.value = []
-      movementHistory.value = buildMovementHistory([])
       selectedAssetMovements.value = []
       movementHistoryError.value = ''
       clearMovementHistoryError.value = ''
     } catch (error) {
       clearMovementHistoryError.value = error.message || 'Não foi possível limpar o histórico.'
+    }
+  }
+
+  if (action === 'delete-asset') {
+    try {
+      await deleteAssetRequest(pendingAssetId.value)
+      const assetIndex = rows.findIndex(
+        (asset) => String(asset.id) === String(pendingAssetId.value)
+      )
+      if (assetIndex !== -1) rows.splice(assetIndex, 1)
+      if (String(selectedAsset.value?.id) === String(pendingAssetId.value)) {
+        selectedAsset.value = null
+        showDetailsModal.value = false
+      }
+      await loadMovementHistory()
+      pendingAssetId.value = null
+    } catch (error) {
+      assetDeletionErrorMessage.value = error.message || 'Não foi possível excluir este ativo.'
+      showAssetDeletionErrorModal.value = true
     }
   }
 
@@ -706,6 +714,8 @@ function handleRowAction({ action, row }) {
     void loadSelectedAssetHistory(row.id)
   } else if (action === 'edit') {
     openAssetForm(row)
+  } else if (action === 'delete') {
+    requestAssetDeletion(row)
   }
 }
 </script>
@@ -841,18 +851,11 @@ function handleRowAction({ action, row }) {
         </template>
       </Modal>
 
-      <LineChart v-if="!isLoadingMovementHistory && !movementHistoryError && movementHistory.values.some((value) => value > 0)"
-        title="Histórico de Ativos" :labels="movementHistory.labels" :values="movementHistory.values"
-        series-label="Ativos movimentados" />
+      <LineChart v-if="labs.length" title="Ativos por Laboratório" :labels="assetCountsByLab.labels"
+        :values="assetCountsByLab.values" series-label="Quantidade de ativos" />
       <article v-else class="w-full rounded-lg bg-red-2 px-8 py-6" aria-live="polite">
-        <h2 class="text-2xl font-semibold text-black">Histórico de Ativos</h2>
-        <p class="mt-3 text-sm text-text-secondary">
-          {{ isLoadingMovementHistory ? 'Carregando movimentações...' : movementHistoryError || 'Nenhuma movimentação nos últimos 10 dias.' }}
-        </p>
-        <button v-if="movementHistoryError" class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-primary hover:underline"
-          type="button" @click="loadMovementHistory">
-          <RefreshCw :size="16" /> Tentar novamente
-        </button>
+        <h2 class="text-2xl font-semibold text-black">Ativos por Laboratório</h2>
+        <p class="mt-3 text-sm text-text-secondary">Nenhum laboratório cadastrado.</p>
       </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
@@ -1087,7 +1090,7 @@ function handleRowAction({ action, row }) {
       </div>
 
       <Table :columns="columns" :rows="filteredRows" row-key="id"
-        :actions="canManageAssets ? ['view', 'edit'] : ['view']" @row-action="handleRowAction" />
+        :actions="canManageAssets ? ['view', 'edit', 'delete'] : ['view']" @row-action="handleRowAction" />
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
@@ -1272,16 +1275,33 @@ function handleRowAction({ action, row }) {
       </template>
     </Modal>
 
-    <ConfirmModal v-model="showConfirmation" :title="confirmationAction === 'delete-lab'
-      ? 'Excluir laboratório'
+    <Modal v-model="showAssetDeletionErrorModal" title="Não foi possível excluir o ativo" size="sm">
+      <div class="flex items-start gap-3 rounded-2xl bg-bg-red p-4 text-sm text-text-primary">
+        <AlertTriangle class="mt-0.5 shrink-0 text-red-primary" :size="20" aria-hidden="true" />
+        <p>{{ assetDeletionErrorMessage }}</p>
+      </div>
+
+      <template #footer>
+        <Button variant="outline" size="sm" @click="showAssetDeletionErrorModal = false">
+          Fechar
+        </Button>
+      </template>
+    </Modal>
+
+    <ConfirmModal v-model="showConfirmation" :title="confirmationAction === 'delete-asset'
+      ? 'Excluir ativo'
+      : confirmationAction === 'delete-lab'
+        ? 'Excluir laboratório'
       : confirmationAction === 'clear-movements'
         ? 'Limpar histórico de movimentações'
         : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
         ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+        : confirmationAction === 'delete-asset'
+          ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
         : confirmationAction === 'clear-movements'
           ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
           : 'Tem certeza que deseja salvar as alterações deste ativo?'"
-      :confirm-text="confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
+      :confirm-text="confirmationAction === 'delete-asset' || confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
       @confirm="confirmAction" />
   </main>
 </template>

@@ -290,7 +290,30 @@ class ApiViewsTests(TestCase):
         self.assertFalse(updated.data["status"])
 
         deleted = client.delete(f"/api/ativos/{created.data['id_ativos']}/")
-        self.assertEqual(deleted.status_code, 405)
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Ativo.objects.filter(pk=created.data["id_ativos"]).exists())
+        self.assertTrue(LogAcao.objects.filter(
+            acao="EXCLUIR",
+            entidade="Ativo",
+            entidade_id=str(created.data["id_ativos"]),
+        ).exists())
+
+    def test_asset_with_service_order_cannot_be_deleted(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção de teste",
+            descricao="OS vinculada ao ativo.",
+        )
+        order.ativos.add(self.ativo)
+
+        response = self.authenticate(self.admin).delete(f"/api/ativos/{self.ativo.pk}/")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(Ativo.objects.filter(pk=self.ativo.pk).exists())
+        self.assertFalse(LogAcao.objects.filter(
+            acao="EXCLUIR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+        ).exists())
 
     def test_laboratory_crud_uses_paginated_salas_contract(self):
         client = self.authenticate(self.admin)

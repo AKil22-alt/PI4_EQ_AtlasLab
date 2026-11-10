@@ -5,6 +5,7 @@ from io import BytesIO
 import qrcode
 from django.contrib.auth.hashers import check_password
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Count
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
@@ -12,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -321,7 +322,7 @@ class SalaLabViewSet(AuditedModelViewSet):
 class AtivoViewSet(AuditedModelViewSet):
     serializer_class = AtivoSerializer
     lookup_field = "id_ativos"
-    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
     roles_create = TECNICO
     roles_write = TECNICO
     entity_name = "Ativo"
@@ -354,6 +355,16 @@ class AtivoViewSet(AuditedModelViewSet):
         if local_origem_id:
             queryset = queryset.filter(local_origem_id=local_origem_id)
         return queryset
+
+    def perform_destroy(self, instance):
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError as error:
+            exception = APIException(
+                "Não é possível excluir este ativo porque existem movimentações ou ordens de serviço vinculadas."
+            )
+            exception.status_code = status.HTTP_409_CONFLICT
+            raise exception from error
 
     def get_permissions(self):
         self.action_roles = {"movimentar": TODOS}
