@@ -7,19 +7,21 @@ import {
   updateLaboratoryRequest,
   deleteLaboratoryRequest,
   listAssetsRequest,
+  assetHistoryRequest,
   listAssetGroupsRequest,
   createAssetGroupRequest,
   updateAssetGroupRequest,
   createAssetRequest,
   updateAssetRequest,
-  moveAssetRequest
+  moveAssetRequest,
+  listAllPagesRequest
 } from '../services/api'
 import Table from '../components/Table.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowRightLeft, Layers, Pencil, Plus } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -28,12 +30,116 @@ const authStore = useAuthStore()
 const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
+const movementSearchText = ref('')
+const allMovementRecords = ref([])
+const movementHistory = ref({ labels: [], values: [] })
+const isLoadingMovementHistory = ref(false)
+const movementHistoryError = ref('')
+const selectedAssetMovements = ref([])
+const isLoadingAssetMovements = ref(false)
+const assetMovementsError = ref('')
 
 const labs = reactive([])
 const groups = reactive([])
 const laboratoryResponsibles = reactive([])
 const canManageLabs = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
 const canManageAssets = computed(() => ['ADM', 'TEC'].includes(authStore.currentUser?.cargo))
+
+const movementColumns = [
+  { key: 'date', label: 'Data e hora', width: '16%' },
+  { key: 'asset', label: 'Ativo', width: '18%' },
+  { key: 'patrimony', label: 'Patrimônio', width: '16%' },
+  { key: 'user', label: 'Responsável', width: '15%' },
+  { key: 'destination', label: 'Destino', width: '12%' },
+  { key: 'quantity', label: 'Quantidade', width: '10%' },
+  { key: 'justification', label: 'Justificativa', width: '13%' }
+]
+
+const filteredMovementRows = computed(() => {
+  const query = movementSearchText.value.trim().toLowerCase()
+
+  return allMovementRecords.value.map((movement) => ({
+    id: movement.id_mov,
+    date: formatMovementDate(movement.data_hora),
+    asset: movement.ativo_detalhes?.nome || `Ativo ${movement.ativo}`,
+    patrimony: movement.ativo_detalhes?.qr_code || 'Não informado',
+    user: movement.usuario_detalhes?.nome || 'Usuário',
+    destination: movement.local_m || 'Não informado',
+    quantity: movement.contagem_mov_a ?? 1,
+    justification: movement.justificativa || 'Não informada'
+  })).filter((movement) => !query || Object.values(movement)
+    .some((value) => String(value).toLowerCase().includes(query)))
+})
+
+function buildMovementHistory(movements) {
+  const days = Array.from({ length: 10 }, (_, index) => {
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - (9 - index))
+    return date
+  })
+  const dailyTotals = new Map(days.map((date) => [date.toLocaleDateString('sv-SE'), 0]))
+
+  movements.forEach((movement) => {
+    const dateKey = movement.data_hora?.slice(0, 10)
+    if (dailyTotals.has(dateKey)) {
+      dailyTotals.set(dateKey, dailyTotals.get(dateKey) + Number(movement.contagem_mov_a ?? 1))
+    }
+  })
+
+  return {
+    labels: days.map((date) => date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })),
+    values: days.map((date) => dailyTotals.get(date.toLocaleDateString('sv-SE')))
+  }
+}
+
+async function loadMovementHistory() {
+  isLoadingMovementHistory.value = true
+  movementHistoryError.value = ''
+
+  try {
+    const movements = await listAllPagesRequest('/movimentacoes/')
+    allMovementRecords.value = movements.sort(
+      (first, second) => new Date(second.data_hora) - new Date(first.data_hora)
+    )
+    movementHistory.value = buildMovementHistory(movements)
+  } catch (error) {
+    console.error('Erro ao carregar histórico de movimentações:', error)
+    movementHistoryError.value = 'Não foi possível carregar o histórico de movimentações. Tente novamente.'
+  } finally {
+    isLoadingMovementHistory.value = false
+  }
+}
+
+function formatMovementDate(value) {
+  if (!value) return 'Data não informada'
+
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+async function loadSelectedAssetHistory(assetId) {
+  isLoadingAssetMovements.value = true
+  assetMovementsError.value = ''
+  selectedAssetMovements.value = []
+
+  try {
+    const history = await assetHistoryRequest(assetId)
+    selectedAssetMovements.value = (history.movimentacoes || []).sort(
+      (first, second) => new Date(second.data_hora) - new Date(first.data_hora)
+    )
+  } catch (error) {
+    console.error('Erro ao carregar histórico do ativo:', error)
+    assetMovementsError.value = 'Não foi possível carregar as movimentações deste ativo.'
+  } finally {
+    isLoadingAssetMovements.value = false
+  }
+}
 
 function mapLaboratory(laboratory) {
   return {
@@ -96,6 +202,8 @@ onMounted(async () => {
   } catch (error) {
     console.error('Erro ao carregar grupos de ativos:', error)
   }
+
+  await loadMovementHistory()
 })
 
 const filteredLabs = computed(() => {
@@ -165,6 +273,7 @@ const groupForm = reactive({
 })
 
 const movementForm = reactive({
+  assetId: '',
   labId: '',
   justification: ''
 })
@@ -438,36 +547,43 @@ async function saveAsset() {
   }
 }
 
-function openMovementForm(asset) {
+function openMovementForm(asset = null) {
   selectedAsset.value = asset
   showDetailsModal.value = false
-  movementForm.labId = asset.currentLabId ?? asset.roomId ?? ''
+  movementForm.assetId = asset?.id ?? ''
+  movementForm.labId = asset?.currentLabId ?? asset?.roomId ?? ''
   movementForm.justification = ''
   showMovementModal.value = true
 }
 
+function selectMovementAsset() {
+  const asset = rows.find((item) => String(item.id) === String(movementForm.assetId))
+  movementForm.labId = asset?.currentLabId ?? ''
+}
+
 async function submitMovement() {
+  const assetId = selectedAsset.value?.id ?? movementForm.assetId
+  const asset = rows.find((item) => String(item.id) === String(assetId))
   const lab = labs.find((item) => String(item.id) === String(movementForm.labId))
-  if (!selectedAsset.value || !lab || !movementForm.justification.trim()) return
+  if (!asset || !lab || !movementForm.justification.trim()) return
 
   try {
-    await moveAssetRequest(selectedAsset.value.id, {
+    await moveAssetRequest(asset.id, {
       local_m: lab.acronym,
       sala_id: lab.id,
       justificativa: movementForm.justification.trim()
     })
 
     const updatedLocation = lab.acronym
-    selectedAsset.value.current = updatedLocation
-    selectedAsset.value.currentLabId = lab.id
-    selectedAsset.value.roomId = lab.id
-    const asset = rows.find((row) => row.id === selectedAsset.value.id)
-    if (asset) {
-      asset.current = updatedLocation
-      asset.currentLabId = lab.id
-      asset.roomId = lab.id
-    }
+    asset.current = updatedLocation
+    asset.currentLabId = lab.id
+    asset.roomId = lab.id
+    if (selectedAsset.value?.id === asset.id) Object.assign(selectedAsset.value, asset)
     showMovementModal.value = false
+    movementForm.assetId = ''
+    movementForm.labId = ''
+    movementForm.justification = ''
+    void loadMovementHistory()
   } catch (error) {
     console.error('Erro ao movimentar ativo:', error)
   }
@@ -519,7 +635,9 @@ async function confirmAction() {
 function handleRowAction({ action, row }) {
   if (action === 'view') {
     selectedAsset.value = row
+    selectedAssetMovements.value = []
     showDetailsModal.value = true
+    void loadSelectedAssetHistory(row.id)
   } else if (action === 'edit') {
     openAssetForm(row)
   }
@@ -528,7 +646,7 @@ function handleRowAction({ action, row }) {
 
 <template>
   <main class="min-w-0 space-y-6 px-4 pb-8 pt-0 sm:px-8">
-    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios e ativos">
+    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios, ativos e movimentações">
       <button type="button" :class="[
         'border-b-2 px-2 pb-2 text-sm',
         activeTab === 'labs'
@@ -545,6 +663,15 @@ function handleRowAction({ action, row }) {
           : 'border-transparent text-text-secondary'
       ]" :aria-selected="activeTab === 'assets'" @click="activeTab = 'assets'">
         Ativos
+      </button>
+
+      <button type="button" :class="[
+        'border-b-2 px-2 pb-2 text-sm',
+        activeTab === 'movements'
+          ? 'border-red-primary font-semibold text-red-primary'
+          : 'border-transparent text-text-secondary'
+      ]" :aria-selected="activeTab === 'movements'" @click="activeTab = 'movements'">
+        Movimentações
       </button>
     </nav>
 
@@ -648,10 +775,19 @@ function handleRowAction({ action, row }) {
         </template>
       </Modal>
 
-      <LineChart title="Histórico de Ativos" :labels="[
-        'B-101', 'B-101', 'B-101', 'B-101', 'B-101',
-        'B-101', 'B-101', 'B-101', 'B-101', 'B-101'
-      ]" :values="[5, 12, 8, 15, 15, 22, 18, 22, 8, 5]" />
+      <LineChart v-if="!isLoadingMovementHistory && !movementHistoryError && movementHistory.values.some((value) => value > 0)"
+        title="Histórico de Ativos" :labels="movementHistory.labels" :values="movementHistory.values"
+        series-label="Ativos movimentados" />
+      <article v-else class="w-full rounded-lg bg-red-2 px-8 py-6" aria-live="polite">
+        <h2 class="text-2xl font-semibold text-black">Histórico de Ativos</h2>
+        <p class="mt-3 text-sm text-text-secondary">
+          {{ isLoadingMovementHistory ? 'Carregando movimentações...' : movementHistoryError || 'Nenhuma movimentação nos últimos 10 dias.' }}
+        </p>
+        <button v-if="movementHistoryError" class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-primary hover:underline"
+          type="button" @click="loadMovementHistory">
+          <RefreshCw :size="16" /> Tentar novamente
+        </button>
+      </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
           :responsible="lab.responsible" :can-manage="canManageLabs"
@@ -660,7 +796,7 @@ function handleRowAction({ action, row }) {
       </div>
     </section>
 
-    <section v-else class="space-y-6" aria-labelledby="assets-title">
+    <section v-else-if="activeTab === 'assets'" class="space-y-6" aria-labelledby="assets-title">
       <div class="flex flex-wrap justify-end gap-3">
         <Button v-if="canManageAssets" @click="openGroupManager" variant="outline" size="sm">
           <Layers :size="18" />
@@ -916,6 +1052,32 @@ function handleRowAction({ action, row }) {
               <dd class="break-words whitespace-pre-wrap text-text-secondary">{{ selectedAsset.description }}</dd>
             </div>
           </dl>
+
+          <section class="border-t border-gray-200 pt-4" aria-label="Histórico de movimentações">
+            <h3 class="text-base font-semibold text-text-primary">Histórico de movimentações</h3>
+            <p v-if="isLoadingAssetMovements" class="mt-3 text-sm text-text-secondary" role="status">
+              Carregando movimentações...
+            </p>
+            <p v-else-if="assetMovementsError" class="mt-3 text-sm text-red-primary" role="alert">
+              {{ assetMovementsError }}
+              <button class="ml-1 font-semibold underline" type="button" @click="loadSelectedAssetHistory(selectedAsset.id)">
+                Tentar novamente
+              </button>
+            </p>
+            <p v-else-if="selectedAssetMovements.length === 0" class="mt-3 text-sm text-text-secondary">
+              Nenhuma movimentação registrada para este ativo.
+            </p>
+            <ol v-else class="mt-3 max-h-56 space-y-3 overflow-y-auto pr-1">
+              <li v-for="movement in selectedAssetMovements" :key="movement.id_mov"
+                class="border-l-2 border-red-primary/30 pl-3">
+                <p class="text-sm font-semibold text-text-primary">
+                  {{ movement.usuario_detalhes?.nome || 'Usuário' }} · {{ formatMovementDate(movement.data_hora) }}
+                </p>
+                <p class="mt-1 text-sm text-text-secondary">Destino: {{ movement.local_m }}</p>
+                <p class="mt-1 break-words text-xs text-text-secondary">{{ movement.justificativa }}</p>
+              </li>
+            </ol>
+          </section>
         </div>
 
         <template #footer>
@@ -930,35 +1092,87 @@ function handleRowAction({ action, row }) {
         </template>
       </Modal>
 
-      <Modal v-model="showMovementModal" title="Movimentar ativo" size="md">
-        <div class="space-y-5">
-          <div class="space-y-2">
-            <label for="movement-location" class="text-sm font-medium text-text-primary">
-              Novo local <span class="text-red-primary">*</span>
-            </label>
-            <select id="movement-location" v-model.number="movementForm.labId" required
-              class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-              <option disabled value="">Selecione um laboratório</option>
-              <option v-for="lab in labs" :key="`movement-${lab.id}`" :value="lab.id">
-                {{ lab.title }} - {{ lab.acronym }}
-              </option>
-            </select>
-          </div>
-          <div class="space-y-2">
-            <label for="movement-justification" class="text-sm font-medium text-text-primary">
-              Justificativa <span class="text-red-primary">*</span>
-            </label>
-            <textarea id="movement-justification" v-model="movementForm.justification" rows="3" required
-              class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
-          </div>
-        </div>
-        <template #footer>
-          <Button variant="outline" @click="showMovementModal = false">Cancelar</Button>
-          <Button variant="primary" @click="submitMovement">Confirmar movimentação</Button>
-        </template>
-      </Modal>
-
     </section>
+
+    <section v-else class="space-y-6" aria-labelledby="movements-title">
+      <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 id="movements-title" class="text-xl font-semibold text-text-primary">Histórico de movimentações</h1>
+          <p class="mt-1 text-sm text-text-secondary">Movimentações de todos os ativos disponíveis para sua conta.</p>
+        </div>
+        <div class="w-full sm:w-72">
+          <Searchbar v-model="movementSearchText" />
+        </div>
+        <Button variant="primary" size="sm" @click="openMovementForm()">
+          <ArrowRightLeft :size="18" />
+          Nova movimentação
+        </Button>
+      </div>
+
+      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary" role="status">
+        Carregando movimentações...
+      </p>
+      <div v-else-if="movementHistoryError" class="rounded-lg bg-white px-4 py-6" role="alert">
+        <p class="text-sm text-red-primary">{{ movementHistoryError }}</p>
+        <button class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-red-primary hover:underline"
+          type="button" @click="loadMovementHistory">
+          <RefreshCw :size="16" /> Tentar novamente
+        </button>
+      </div>
+      <p v-else-if="allMovementRecords.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+        Nenhuma movimentação registrada.
+      </p>
+      <p v-else-if="filteredMovementRows.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+        Nenhuma movimentação corresponde à pesquisa.
+      </p>
+      <Table v-else :columns="movementColumns" :rows="filteredMovementRows" row-key="id" :actions="[]" />
+    </section>
+
+    <Modal v-model="showMovementModal" title="Movimentar ativo" size="md">
+      <div class="space-y-5">
+        <div v-if="selectedAsset" class="space-y-2">
+          <span class="text-sm font-medium text-text-primary">Ativo</span>
+          <p class="rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary">
+            {{ selectedAsset.name }} · {{ selectedAsset.patrimony }}
+          </p>
+        </div>
+        <div v-else class="space-y-2">
+          <label for="movement-asset" class="text-sm font-medium text-text-primary">
+            Ativo <span class="text-red-primary">*</span>
+          </label>
+          <select id="movement-asset" v-model.number="movementForm.assetId" required @change="selectMovementAsset"
+            class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+            <option disabled value="">Selecione um ativo</option>
+            <option v-for="asset in rows" :key="`movement-asset-${asset.id}`" :value="asset.id">
+              {{ asset.name }} · {{ asset.patrimony }} · {{ asset.current }}
+            </option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label for="movement-location" class="text-sm font-medium text-text-primary">
+            Novo local <span class="text-red-primary">*</span>
+          </label>
+          <select id="movement-location" v-model.number="movementForm.labId" required
+            class="w-full rounded-lg bg-bg px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+            <option disabled value="">Selecione um laboratório</option>
+            <option v-for="lab in labs" :key="`movement-${lab.id}`" :value="lab.id">
+              {{ lab.title }} - {{ lab.acronym }}
+            </option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label for="movement-justification" class="text-sm font-medium text-text-primary">
+            Justificativa <span class="text-red-primary">*</span>
+          </label>
+          <textarea id="movement-justification" v-model="movementForm.justification" rows="3" required
+            class="w-full resize-none rounded-lg bg-bg px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="outline" @click="showMovementModal = false">Cancelar</Button>
+        <Button variant="primary" @click="submitMovement">Confirmar movimentação</Button>
+      </template>
+    </Modal>
 
     <Modal v-model="showLabDeletionErrorModal" title="Não foi possível excluir" size="sm">
       <div class="flex items-start gap-3 rounded-2xl bg-bg-red p-4 text-sm text-text-primary">
