@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import {
     ClipboardList,
     FlaskConical,
@@ -12,31 +12,121 @@ import SummaryCard from '../components/SummaryCard.vue'
 import ActivityList from '../components/ActivityList.vue'
 import BarChart from '../components/BarChart.vue'
 import DonutChart from '../components/DonutChart.vue'
+import { listAllPagesRequest } from '../services/api'
+import { useAuthStore } from '../store/auth'
 
-// Estes dados têm o mesmo formato esperado pela API e podem ser substituídos pela resposta do backend.
+const authStore = useAuthStore()
 const summaryCards = ref([
-    { id: 'users', title: 'Usuários', value: 50, icon: Users, to: '/users' },
-    { id: 'labs', title: 'Laboratórios', value: 10, icon: FlaskConical, to: '/labs' },
-    { id: 'assets', title: 'Ativos', value: 140, icon: Package, to: '/labs' },
-    { id: 'orders', title: 'Ordens de Serviço', value: 15, icon: ClipboardList, to: '/orders', active: true }
+    { id: 'users', title: 'Usuários', value: '—', icon: Users, to: '/users' },
+    { id: 'labs', title: 'Laboratórios', value: 0, icon: FlaskConical, to: '/labs' },
+    { id: 'assets', title: 'Ativos', value: 0, icon: Package, to: '/labs' },
+    { id: 'orders', title: 'Ordens de Serviço', value: 0, icon: ClipboardList, to: '/orders', active: true }
 ])
 
-const activities = ref([
-    { id: 1, title: 'Guilherme movimentou 10 ativos', time: '40 s - 14/09/2026', icon: Package, to: '/labs' },
-    { id: 2, title: 'Eduardo criou uma OS', time: '10 m - 14/09/2026', icon: ClipboardCheck, to: '/orders' },
-    { id: 3, title: 'Cauã completou uma OS', time: '2 h - 14/09/2026', icon: ClipboardCheck, to: '/orders' },
-    { id: 4, title: 'Thainara adicionou um laboratório', time: 'Ontem - 13/09/2026', icon: FlaskConical, to: '/labs' }
-])
+const activities = ref([])
 
 const weeklyActivity = ref({
-    labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'],
-    values: [15, 30, 20, 10, 25]
+    labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+    values: [0, 0, 0, 0, 0, 0, 0]
 })
 
 const assetDistribution = ref({
-    labels: ['B-101', 'B-102', 'B-111', 'B-112'],
-    values: [50, 25, 15, 10]
+    labels: [],
+    values: []
 })
+
+function formatActivityTime(value) {
+    if (!value) return ''
+
+    return new Date(value).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    })
+}
+
+function buildWeeklyActivity(orders, movements) {
+    const startOfWeek = new Date()
+    startOfWeek.setHours(0, 0, 0, 0)
+    startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7))
+
+    const values = Array(7).fill(0)
+    ;[...orders.map((order) => order.data_hora), ...movements.map((movement) => movement.data_hora)]
+        .filter(Boolean)
+        .forEach((dateValue) => {
+            const date = new Date(dateValue)
+            if (date < startOfWeek) return
+
+            const dayIndex = Math.floor((date - startOfWeek) / 86400000)
+            if (dayIndex >= 0 && dayIndex < values.length) values[dayIndex] += 1
+        })
+
+    return { labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'], values }
+}
+
+function buildRecentActivities(orders, movements) {
+    const orderActivities = orders.map((order) => ({
+        id: `order-${order.id_ordem}`,
+        title: `OS criada: ${order.titulo}`,
+        time: formatActivityTime(order.data_hora),
+        timestamp: new Date(order.data_hora).getTime(),
+        icon: ClipboardCheck,
+        to: '/orders'
+    }))
+    const movementActivities = movements.map((movement) => ({
+        id: `movement-${movement.id_mov}`,
+        title: `${movement.usuario_detalhes?.nome || 'Usuário'} movimentou ${movement.contagem_mov_a} ativo(s)`,
+        time: formatActivityTime(movement.data_hora),
+        timestamp: new Date(movement.data_hora).getTime(),
+        icon: Package,
+        to: '/labs'
+    }))
+
+    return [...orderActivities, ...movementActivities]
+        .sort((first, second) => second.timestamp - first.timestamp)
+        .slice(0, 4)
+}
+
+async function loadDashboard() {
+    try {
+        const [laboratories, assets, orders, movements] = await Promise.all([
+            listAllPagesRequest('/salas/'),
+            listAllPagesRequest('/ativos/'),
+            listAllPagesRequest('/ordens-servico/'),
+            listAllPagesRequest('/movimentacoes/')
+        ])
+
+        summaryCards.value.find((card) => card.id === 'labs').value = laboratories.length
+        summaryCards.value.find((card) => card.id === 'assets').value = assets.length
+        summaryCards.value.find((card) => card.id === 'orders').value = orders.length
+
+        if (authStore.currentUser?.cargo === 'ADM') {
+            const users = await listAllPagesRequest('/usuarios/')
+            summaryCards.value.find((card) => card.id === 'users').value = users.length
+        }
+
+        weeklyActivity.value = buildWeeklyActivity(orders, movements)
+        activities.value = buildRecentActivities(orders, movements)
+
+        const assetsByLaboratory = new Map()
+        assets.forEach((asset) => {
+            const label = asset.local_atual_detalhes?.localizacao ||
+                laboratories.find((laboratory) => laboratory.id_sala === asset.local_atual)?.localizacao ||
+                'Não informado'
+            assetsByLaboratory.set(label, (assetsByLaboratory.get(label) || 0) + 1)
+        })
+        assetDistribution.value = {
+            labels: [...assetsByLaboratory.keys()],
+            values: [...assetsByLaboratory.values()]
+        }
+    } catch (error) {
+        console.error('Erro ao carregar dados do dashboard:', error)
+    }
+}
+
+onMounted(loadDashboard)
 </script>
 
 <template>

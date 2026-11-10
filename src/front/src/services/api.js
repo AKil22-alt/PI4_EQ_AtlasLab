@@ -45,6 +45,25 @@ export async function apiRequest(path, options = {}) {
     }
 }
 
+export async function listAllPagesRequest(path) {
+    const items = []
+    let page = 1
+    let hasNextPage = true
+
+    while (hasNextPage) {
+        const separator = path.includes('?') ? '&' : '?'
+        const response = await apiRequest(`${path}${separator}page=${page}`)
+
+        if (Array.isArray(response)) return response
+
+        items.push(...(response.results || []))
+        hasNextPage = Boolean(response.next)
+        page += 1
+    }
+
+    return items
+}
+
 export function loginRequest(email, senha) {
     return apiRequest('/auth/login/', {
         method: 'POST',
