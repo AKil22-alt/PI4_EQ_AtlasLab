@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Table from '../components/Table.vue';
+import PaginationControls from '../components/PaginationControls.vue';
 import Searchbar from '../components/Searchbar.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import Modal from '../components/Modal.vue';
@@ -18,6 +19,10 @@ const pendingRequestAction = ref(null);
 const showRoleModal = ref(false);
 const selectedUser = ref(null);
 const editCargo = ref('CLB');
+const userPageSize = ref(10);
+const userCurrentPage = ref(1);
+const requestPageSize = ref(10);
+const requestCurrentPage = ref(1);
 
 const columns = [
 	{ key: 'name', label: 'Nome', width: '24%' },
@@ -48,9 +53,33 @@ const filteredUsers = computed(() => {
 	return users.value.filter((user) => [user.name, user.role, user.email]
 		.some((value) => value.toLowerCase().includes(query)))
 })
+const paginatedUsers = computed(() => {
+	const start = (userCurrentPage.value - 1) * userPageSize.value
+	return filteredUsers.value.slice(start, start + userPageSize.value)
+})
 const requests = computed(() => authStore.pendingRequests)
+const paginatedRequests = computed(() => {
+	const start = (requestCurrentPage.value - 1) * requestPageSize.value
+	return requests.value.slice(start, start + requestPageSize.value)
+})
 const isAdmin = computed(() => authStore.currentUser?.cargo === 'ADM')
 const userActions = computed(() => isAdmin.value ? ['edit', 'delete'] : [])
+
+watch([filteredUsers, userPageSize], () => {
+	userCurrentPage.value = 1
+})
+
+watch(requestPageSize, () => {
+	requestCurrentPage.value = 1
+})
+
+function showFocusedRequestPage() {
+	if (!focusedRequestId.value) return
+	const requestIndex = requests.value.findIndex((request) => request.id === focusedRequestId.value)
+	if (requestIndex !== -1) {
+		requestCurrentPage.value = Math.floor(requestIndex / requestPageSize.value) + 1
+	}
+}
 
 watch(() => [route.query.tab, route.query.requestId, route.query.userId], async () => {
 	if (route.query.tab === 'requests') activeTab.value = 'requests'
@@ -63,6 +92,7 @@ watch(() => [route.query.tab, route.query.requestId, route.query.userId], async 
 	focusedRequestId.value = Number.isInteger(requestId) && requestId > 0 ? requestId : null
 
 	if (!focusedRequestId.value || !isAdmin.value) return
+	showFocusedRequestPage()
 	await nextTick()
 	document.getElementById(`request-${focusedRequestId.value}`)?.scrollIntoView({
 		behavior: 'smooth',
@@ -88,6 +118,8 @@ onMounted(async () => {
 	}
 
 	if (focusedRequestId.value) {
+		await nextTick()
+		showFocusedRequestPage()
 		await nextTick()
 		document.getElementById(`request-${focusedRequestId.value}`)?.scrollIntoView({
 			behavior: 'smooth',
@@ -183,43 +215,48 @@ async function confirmRequestAction() {
 				</div>
 			</div>
 
-			<Table :columns="columns" :rows="filteredUsers" row-key="id" :actions="userActions"
+			<Table :columns="columns" :rows="paginatedUsers" row-key="id" :actions="userActions"
 				@row-action="handleUserAction" />
+			<PaginationControls v-model:page="userCurrentPage" v-model:page-size="userPageSize"
+				:total="filteredUsers.length" item-label="Usuários" />
 		</section>
 
-		<div v-else-if="isAdmin && activeTab === 'requests' && requests.length"
-			class="overflow-hidden rounded-xl bg-bg-red">
-			<table class="w-full table-fixed text-left text-xs">
-				<thead class="bg-red-1 text-white">
-					<tr>
-						<th class="w-[25%] px-3 py-2 font-semibold">Nome</th>
-						<th class="w-[35%] px-3 py-2 font-semibold">Email</th>
-						<th class="w-[20%] px-3 py-2 font-semibold">Solicitado em</th>
-						<th class="w-[20%] px-3 py-2 font-semibold">Ações</th>
-					</tr>
-				</thead>
-				<tbody>
-					<tr v-for="request in requests" :id="`request-${request.id}`" :key="request.id"
-						:class="request.id === focusedRequestId ? 'bg-white outline outline-2 outline-red-primary' : ''">
-						<td class="px-3 py-3 text-text-secondary">{{ request.name }}</td>
-						<td class="px-3 py-3 text-text-secondary">{{ request.email }}</td>
-						<td class="px-3 py-3 text-text-secondary">{{ request.requestedAt }}</td>
-						<td class="flex gap-2 px-3 py-2">
-							<button type="button"
-								class="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-								@click="approveRequest(request)">
-								Aceitar
-							</button>
-							<button type="button"
-								class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-1 hover:bg-red-2"
-								@click="rejectRequest(request)">
-								Recusar
-							</button>
-						</td>
-					</tr>
-				</tbody>
-			</table>
-		</div>
+		<section v-else-if="isAdmin && activeTab === 'requests' && requests.length" class="space-y-4">
+			<div class="overflow-hidden rounded-xl bg-bg-red">
+				<table class="w-full table-fixed text-left text-xs">
+					<thead class="bg-red-1 text-white">
+						<tr>
+							<th class="w-[25%] px-3 py-2 font-semibold">Nome</th>
+							<th class="w-[35%] px-3 py-2 font-semibold">Email</th>
+							<th class="w-[20%] px-3 py-2 font-semibold">Solicitado em</th>
+							<th class="w-[20%] px-3 py-2 font-semibold">Ações</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="request in paginatedRequests" :id="`request-${request.id}`" :key="request.id"
+							:class="request.id === focusedRequestId ? 'bg-white outline outline-2 outline-red-primary' : ''">
+							<td class="px-3 py-3 text-text-secondary">{{ request.name }}</td>
+							<td class="px-3 py-3 text-text-secondary">{{ request.email }}</td>
+							<td class="px-3 py-3 text-text-secondary">{{ request.requestedAt }}</td>
+							<td class="flex gap-2 px-3 py-2">
+								<button type="button"
+									class="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+									@click="approveRequest(request)">
+									Aceitar
+								</button>
+								<button type="button"
+									class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-1 hover:bg-red-2"
+									@click="rejectRequest(request)">
+									Recusar
+								</button>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<PaginationControls v-model:page="requestCurrentPage" v-model:page-size="requestPageSize"
+				:total="requests.length" item-label="Solicitações" />
+		</section>
 		<div v-else-if="isAdmin && activeTab === 'requests'"
 			class="rounded-xl bg-bg-red px-6 py-10 text-center text-sm text-text-secondary">
 			Não há solicitações de entrada pendentes.

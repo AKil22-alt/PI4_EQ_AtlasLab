@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Table from '../components/Table.vue'
 import Button from '../components/Button.vue'
 import Searchbar from '../components/Searchbar.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { ArrowLeft, Check, Pencil, Play, Plus, X } from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
 import {
@@ -15,7 +16,7 @@ import {
 	listAssetsRequest,
 	listLaboratoriesRequest,
 	listLaboratoryResponsiblesRequest,
-	listServiceOrdersRequest,
+	listAllPagesRequest,
 	updateServiceOrderRequest
 } from '../services/api'
 
@@ -76,7 +77,8 @@ function mapServiceOrder(order) {
 		responsibleId: order.responsavel || '',
 		responsible: responsible?.nome || 'Não informado',
 		status: statusLabels[order.status] || order.status,
-		description: order.descricao
+		description: order.descricao,
+		completionDescription: order.descricao_conclusao || ''
 	}
 }
 
@@ -85,8 +87,7 @@ async function loadOrders() {
 	ordersError.value = ''
 
 	try {
-		const response = await listServiceOrdersRequest()
-		const orders = Array.isArray(response) ? response : response.results || []
+		const orders = await listAllPagesRequest('/ordens-servico/')
 		const newestFirst = orders.map(mapServiceOrder).sort((first, second) => second.id - first.id)
 		rows.splice(0, rows.length, ...newestFirst)
 	} catch (error) {
@@ -139,20 +140,30 @@ const editingOrderId = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
 const statusActionError = ref('')
+const completionDescription = ref('')
 const isUpdatingStatus = ref(false)
 const actionError = ref('')
 const searchText = ref('')
-const filters = reactive({ number: '', sector: '', lab: '', status: '' })
+const activeTab = ref('all')
+const filters = reactive({ number: '', sector: '', lab: '' })
+const ordersPageSize = ref(10)
+const ordersCurrentPage = ref(1)
 const orderForm = reactive({
 	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', responsible: '', status: 'ABERTA', description: ''
 })
+
+const orderTabs = [
+	{ key: 'all', label: 'Todas', status: '' },
+	{ key: 'open', label: 'Abertas', status: 'ABERTA' },
+	{ key: 'inProgress', label: 'Em andamento', status: 'EM_ANDAMENTO' },
+	{ key: 'completed', label: 'Concluídas', status: 'CONCLUIDA' }
+]
 
 const isEditing = computed(() => editingOrderId.value !== null)
 
 const numberOptions = computed(() => [...new Set(rows.map((row) => row.number))])
 const sectorOptions = computed(() => [...new Set(rows.map((row) => row.sector))])
 const labOptions = computed(() => [...new Set(rows.map((row) => row.lab))])
-const statusOptions = computed(() => [...new Set(rows.map((row) => row.status))])
 const formSectorOptions = computed(() => [...new Set(assetGroups.map((group) => group.setor).filter(Boolean))].sort())
 const formAssetOptions = computed(() => assets.filter((asset) =>
 	asset.status !== false && asset.grupo_detalhes?.setor === orderForm.sector
@@ -160,15 +171,24 @@ const formAssetOptions = computed(() => assets.filter((asset) =>
 
 const filteredRows = computed(() => {
 	const query = searchText.value.trim().toLowerCase()
+	const selectedTab = orderTabs.find((tab) => tab.key === activeTab.value)
 
 	return rows.filter((row) => {
 		const matchesSearch = !query || Object.values(row).some((value) => String(value).toLowerCase().includes(query))
-		return matchesSearch
+		return (!selectedTab?.status || row.statusValue === selectedTab.status)
+			&& matchesSearch
 			&& (!filters.number || row.number === filters.number)
 			&& (!filters.sector || row.sector === filters.sector)
 			&& (!filters.lab || row.lab === filters.lab)
-			&& (!filters.status || row.status === filters.status)
 	})
+})
+const paginatedOrderRows = computed(() => {
+	const start = (ordersCurrentPage.value - 1) * ordersPageSize.value
+	return filteredRows.value.slice(start, start + ordersPageSize.value)
+})
+
+watch([filteredRows, ordersPageSize], () => {
+	ordersCurrentPage.value = 1
 })
 
 function clearFilters() {
@@ -176,7 +196,6 @@ function clearFilters() {
 	filters.number = ''
 	filters.sector = ''
 	filters.lab = ''
-	filters.status = ''
 }
 
 function resetOrderForm() {
@@ -215,6 +234,7 @@ function handleSectorChange() {
 
 function requestStatusAction(action) {
 	statusActionError.value = ''
+	if (action === 'finish') completionDescription.value = ''
 	requestConfirmation(action)
 }
 
@@ -333,6 +353,8 @@ function requestDeleteOrder(order) {
 }
 
 async function confirmOrderAction() {
+	if (isUpdatingStatus.value) return
+
 	const action = confirmationAction.value
 
 	if (action === 'save') {
@@ -360,16 +382,25 @@ async function confirmOrderAction() {
 		cancel: 'CANCELADA'
 	}[action]
 
+	if (action === 'finish' && !completionDescription.value.trim()) {
+		statusActionError.value = 'Descreva o que foi feito antes de finalizar a ordem.'
+		return
+	}
+
 	if (nextStatus && selectedOrder.value) {
 		isUpdatingStatus.value = true
 		statusActionError.value = ''
 
 		try {
-			const updatedOrder = await updateServiceOrderRequest(selectedOrder.value.id, { status: nextStatus })
+			const updatedOrder = await updateServiceOrderRequest(selectedOrder.value.id, {
+				status: nextStatus,
+				...(action === 'finish' ? { descricao_conclusao: completionDescription.value.trim() } : {})
+			})
 			const updatedRow = mapServiceOrder(updatedOrder)
 			const rowIndex = rows.findIndex((row) => row.id === selectedOrder.value.id)
 			if (rowIndex !== -1) rows.splice(rowIndex, 1, updatedRow)
 			selectedOrder.value = updatedRow
+			if (action === 'finish') showConfirmation.value = false
 		} catch (error) {
 			statusActionError.value = error.message || 'Não foi possível atualizar o status da ordem.'
 		} finally {
@@ -402,6 +433,19 @@ function handleRowAction({ action, row }) {
 			</div>
 
 			<div v-if="!showCreateModal" class="space-y-6">
+				<nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8"
+					aria-label="Filtrar ordens por status">
+					<button v-for="tab in orderTabs" :key="tab.key" type="button" :aria-pressed="activeTab === tab.key"
+						:class="[
+							'border-b-2 px-2 pb-2 text-sm transition-colors',
+							activeTab === tab.key
+								? 'border-red-primary font-semibold text-red-primary'
+								: 'border-transparent text-text-secondary hover:text-text-primary'
+						]" @click="activeTab = tab.key">
+						{{ tab.label }}
+					</button>
+				</nav>
+
 				<div class="flex flex-wrap items-end gap-3">
 					<div class="w-60">
 						<Searchbar v-model="searchText" />
@@ -440,17 +484,6 @@ function handleRowAction({ action, row }) {
 						</select>
 					</label>
 
-					<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
-						Status
-						<select v-model="filters.status"
-							class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-							<option value="">Selecione</option>
-							<option v-for="status in statusOptions" :key="status" :value="status">
-								{{ status }}
-							</option>
-						</select>
-					</label>
-
 					<Button variant="outline" size="sm" @click="clearFilters">
 						Limpar filtros
 					</Button>
@@ -468,8 +501,11 @@ function handleRowAction({ action, row }) {
 				</p>
 				<p v-if="actionError" class="text-sm text-red-primary" role="alert">{{ actionError }}</p>
 				<Table v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0" :columns="columns"
-					:rows="filteredRows" row-key="id" :actions="canManageOrders ? ['view', 'edit', 'delete'] : ['view']"
+					:rows="paginatedOrderRows" row-key="id" :actions="canManageOrders ? ['view', 'edit', 'delete'] : ['view']"
 					@row-action="handleRowAction" />
+				<PaginationControls v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0"
+					v-model:page="ordersCurrentPage" v-model:page-size="ordersPageSize" :total="filteredRows.length"
+					item-label="Ordens" />
 			</div>
 
 			<div v-else class="space-y-6 rounded-lg bg-bg px-8 py-2">
@@ -591,7 +627,6 @@ function handleRowAction({ action, row }) {
 						<option value="">Selecione</option>
 						<option value="ABERTA">Aberta</option>
 						<option value="EM_ANDAMENTO">Em andamento</option>
-						<option value="CONCLUIDA">Concluída</option>
 						<option value="CANCELADA">Cancelada</option>
 					</select>
 				</div>
@@ -647,8 +682,12 @@ function handleRowAction({ action, row }) {
 							<dd class="text-right text-text-secondary">{{ selectedOrder.responsible }}</dd>
 						</div>
 						<div class="space-y-2">
-							<dt class="font-medium text-text-primary">Descrição</dt>
+							<dt class="font-medium text-text-primary">Descrição do serviço</dt>
 							<dd class="text-text-secondary">{{ selectedOrder.description }}</dd>
+						</div>
+						<div v-if="selectedOrder.completionDescription" class="space-y-2">
+							<dt class="font-medium text-text-primary">Serviço realizado</dt>
+							<dd class="text-text-secondary">{{ selectedOrder.completionDescription }}</dd>
 						</div>
 					</dl>
 				</div>
@@ -704,7 +743,20 @@ function handleRowAction({ action, row }) {
 					cancel: 'Cancelar ordem',
 					save: 'Salvar',
 					delete: 'Excluir'
-				}[confirmationAction]" @confirm="confirmOrderAction" />
+				}[confirmationAction]" :close-on-confirm="confirmationAction !== 'finish'"
+					@confirm="confirmOrderAction">
+					<template v-if="confirmationAction === 'finish'">
+						<label for="completion-description" class="block text-sm font-medium text-text-primary">
+							Descreva o que foi feito <span class="text-red-primary">*</span>
+						</label>
+						<textarea id="completion-description" v-model="completionDescription" rows="4" required
+							placeholder="Informe os serviços realizados"
+							class="mt-2 w-full resize-y rounded-lg bg-white px-3 py-3 text-sm text-text-primary outline-none ring-1 ring-gray-200 transition focus:ring-red-primary"></textarea>
+						<p v-if="statusActionError" class="mt-2 text-sm text-red-primary" role="alert">
+							{{ statusActionError }}
+						</p>
+					</template>
+				</ConfirmModal>
 		</section>
 	</main>
 </template>

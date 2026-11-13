@@ -19,6 +19,10 @@ const props = defineProps({
     type: String,
     default: 'Confirmar'
   },
+  closeOnConfirm: {
+    type: Boolean,
+    default: true
+  },
   cancelText: {
     type: String,
     default: 'Cancelar'
@@ -35,7 +39,7 @@ function close() {
 
 function confirm() {
   emit('confirm')
-  close()
+  if (props.closeOnConfirm) close()
 }
 </script>
 

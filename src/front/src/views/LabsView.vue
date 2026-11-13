@@ -20,11 +20,12 @@ import {
   clearMovementHistoryRequest
 } from '../services/api'
 import Table from '../components/Table.vue';
+import PaginationControls from '../components/PaginationControls.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Download, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRightLeft, Download, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -35,6 +36,8 @@ const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
 const movementSearchText = ref('')
+const movementPageSize = ref(10)
+const movementCurrentPage = ref(1)
 const allMovementRecords = ref([])
 const isLoadingMovementHistory = ref(false)
 const movementHistoryError = ref('')
@@ -78,6 +81,14 @@ const filteredMovementRows = computed(() => {
     justification: movement.justificativa || 'Não informada'
   })).filter((movement) => !query || Object.values(movement)
     .some((value) => String(value).toLowerCase().includes(query)))
+})
+const paginatedMovementRows = computed(() => {
+  const start = (movementCurrentPage.value - 1) * movementPageSize.value
+  return filteredMovementRows.value.slice(start, start + movementPageSize.value)
+})
+
+watch([filteredMovementRows, movementPageSize], () => {
+  movementCurrentPage.value = 1
 })
 
 async function loadMovementHistory() {
@@ -379,18 +390,10 @@ const filteredRows = computed(() => {
       && matchesStatus
   })
 })
-const assetPageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / assetPageSize.value)))
 const paginatedRows = computed(() => {
   const start = (assetCurrentPage.value - 1) * assetPageSize.value
   return filteredRows.value.slice(start, start + assetPageSize.value)
 })
-const firstVisibleAsset = computed(() => filteredRows.value.length
-  ? (assetCurrentPage.value - 1) * assetPageSize.value + 1
-  : 0)
-const lastVisibleAsset = computed(() => Math.min(
-  assetCurrentPage.value * assetPageSize.value,
-  filteredRows.value.length
-))
 
 watch([filteredRows, assetPageSize], () => {
   assetCurrentPage.value = 1
@@ -1211,38 +1214,8 @@ function handleRowAction({ action, row }) {
       <Table :columns="columns" :rows="paginatedRows" row-key="id"
         :actions="canManageAssets ? ['view', 'edit', 'delete'] : ['view']" @row-action="handleRowAction" />
 
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-text-secondary" aria-live="polite">
-          Mostrando {{ firstVisibleAsset }}–{{ lastVisibleAsset }} de {{ filteredRows.length }} ativos
-        </p>
-        <div class="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
-          <label class="flex items-center gap-2 text-sm text-text-secondary">
-            Ativos por página
-            <select v-model.number="assetPageSize"
-              class="rounded-lg bg-white px-2 py-2 text-sm text-text-primary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-              <option :value="5">5</option>
-              <option :value="10">10</option>
-              <option :value="50">50</option>
-              <option :value="100">100</option>
-            </select>
-          </label>
-          <div class="flex items-center gap-2">
-            <button type="button" aria-label="Página anterior" title="Página anterior"
-              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="assetCurrentPage === 1" @click="assetCurrentPage -= 1">
-              <ArrowLeft :size="16" />
-            </button>
-            <span class="min-w-20 text-center text-sm text-text-secondary">
-              {{ assetCurrentPage }} / {{ assetPageCount }}
-            </span>
-            <button type="button" aria-label="Próxima página" title="Próxima página"
-              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="assetCurrentPage >= assetPageCount" @click="assetCurrentPage += 1">
-              <ArrowRight :size="16" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <PaginationControls v-model:page="assetCurrentPage" v-model:page-size="assetPageSize"
+        :total="filteredRows.length" item-label="Ativos" />
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
@@ -1387,7 +1360,11 @@ function handleRowAction({ action, row }) {
         class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
         Nenhuma movimentação corresponde à pesquisa.
       </p>
-      <Table v-else :columns="movementColumns" :rows="filteredMovementRows" row-key="id" :actions="[]" />
+      <div v-else class="space-y-4">
+        <Table :columns="movementColumns" :rows="paginatedMovementRows" row-key="id" :actions="[]" />
+        <PaginationControls v-model:page="movementCurrentPage" v-model:page-size="movementPageSize"
+          :total="filteredMovementRows.length" item-label="Movimentações" />
+      </div>
     </section>
 
     <Modal v-model="showMovementModal" title="Movimentar ativo" size="md">

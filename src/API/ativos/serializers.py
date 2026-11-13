@@ -179,12 +179,34 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrdemServico
         fields = [
-            "id_ordem", "titulo", "descricao", "data_hora", "data_termino", "status",
+            "id_ordem", "titulo", "descricao", "descricao_conclusao", "data_hora",
+            "data_termino", "status",
             "responsavel", "responsavel_detalhes",
             "usuario_ids", "sala_ids", "ativo_ids", "manutencao_ids",
             "usuarios_detalhes", "salas_detalhes", "ativos_detalhes", "manutencoes_detalhes",
         ]
         read_only_fields = ["id_ordem"]
+
+    def validate(self, attrs):
+        status_value = attrs.get(
+            "status",
+            self.instance.status if self.instance else OrdemServico.Status.ABERTA,
+        )
+        descricao_conclusao = attrs.get(
+            "descricao_conclusao",
+            self.instance.descricao_conclusao if self.instance else "",
+        )
+
+        if status_value == OrdemServico.Status.CONCLUIDA:
+            if not descricao_conclusao or not descricao_conclusao.strip():
+                raise serializers.ValidationError({
+                    "descricao_conclusao": "Descreva o serviço realizado antes de concluir a ordem."
+                })
+            attrs["descricao_conclusao"] = descricao_conclusao.strip()
+        elif "descricao_conclusao" in attrs and descricao_conclusao:
+            attrs["descricao_conclusao"] = descricao_conclusao.strip()
+
+        return attrs
 
 
 class MovimentacoesASerializer(serializers.ModelSerializer):

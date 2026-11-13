@@ -309,6 +309,47 @@ class ApiViewsTests(TestCase):
             [newer_order.pk, older_order.pk],
         )
 
+    def test_service_order_cannot_be_completed_without_completion_description(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção do equipamento",
+            descricao="Equipamento com falha.",
+        )
+
+        response = self.authenticate(self.admin).patch(
+            f"/api/ordens-servico/{order.pk}/",
+            {
+                "status": OrdemServico.Status.CONCLUIDA,
+                "descricao_conclusao": " \n ",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("descricao_conclusao", response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrdemServico.Status.ABERTA)
+
+    def test_service_order_completion_saves_completion_description_separately(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção do equipamento",
+            descricao="Equipamento com falha.",
+        )
+
+        response = self.authenticate(self.admin).patch(
+            f"/api/ordens-servico/{order.pk}/",
+            {
+                "status": OrdemServico.Status.CONCLUIDA,
+                "descricao_conclusao": "  Cabo substituído e equipamento testado.  ",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrdemServico.Status.CONCLUIDA)
+        self.assertEqual(order.descricao, "Equipamento com falha.")
+        self.assertEqual(order.descricao_conclusao, "Cabo substituído e equipamento testado.")
+
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)
         sala_destino = SalaLab.objects.create(

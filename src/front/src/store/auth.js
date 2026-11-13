@@ -19,8 +19,7 @@ import {
 	approveRequestRequest,
 	currentUserRequest,
 	deleteUserRequest,
-	listRequestsRequest,
-	listUsersRequest,
+	listAllPagesRequest,
 	loginRequest,
 	logoutRequest,
 	registerRequest,
@@ -80,10 +79,10 @@ export const useAuthStore = defineStore('auth', () => {
 
 	async function loadAdminData() {
 		const [loadedUsers, loadedRequests] = await Promise.all([
-			listUsersRequest(),
-			listRequestsRequest()
+			listAllPagesRequest('/usuarios/'),
+			listAllPagesRequest('/auth/solicitacoes/')
 		])
-		users.value = (loadedUsers.results || loadedUsers)
+		users.value = loadedUsers
 			.slice()
 			.sort((first, second) => second.id_user - first.id_user)
 		pendingRequests.value = loadedRequests

@@ -124,6 +124,7 @@ class OrdemServico(models.Model):
 
     id_ordem = models.AutoField(primary_key=True)
     descricao = models.TextField()
+    descricao_conclusao = models.TextField(blank=True, null=True)
     titulo = models.CharField(max_length=100)
     data_hora = models.DateTimeField(default=timezone.now)
     data_termino = models.DateField(blank=True, null=True)
