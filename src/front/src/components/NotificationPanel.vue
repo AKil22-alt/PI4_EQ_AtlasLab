@@ -26,7 +26,7 @@ const emit = defineEmits(['close', 'mark-read', 'select', 'view-all'])
 			</button>
 		</header>
 
-		<div v-if="notifications.length" class="mt-4 divide-y divide-gray-100">
+		<div v-if="notifications.length" class="mt-4 max-h-[60vh] divide-y divide-gray-100 overflow-y-auto pr-1">
 			<!-- v-for cria uma linha para cada item recebido pela prop notifications. -->
 			<article v-for="notification in notifications" :key="notification.id" class="py-3 first:pt-0 last:pb-0">
 				<button type="button" class="block w-full text-left hover:text-red-primary"

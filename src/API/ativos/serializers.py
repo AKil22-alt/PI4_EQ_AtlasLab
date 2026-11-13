@@ -2,7 +2,7 @@ from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
 
 from .models import (
-    Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA,
+    Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA, Notificacao,
     OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
@@ -93,6 +93,21 @@ class SolicitacaoCadastroSerializer(serializers.ModelSerializer):
         model = SolicitacaoCadastro
         fields = ["id", "nome", "email", "criada_em"]
         read_only_fields = fields
+
+
+class NotificacaoSerializer(serializers.ModelSerializer):
+    lida = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notificacao
+        fields = [
+            "id", "mensagem", "criada_em", "lida", "entidade", "entidade_id",
+            "acao", "destino",
+        ]
+        read_only_fields = fields
+
+    def get_lida(self, notificacao):
+        return notificacao.lida_em is not None
 
 
 class GrupoASerializer(serializers.ModelSerializer):

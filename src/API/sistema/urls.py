@@ -35,6 +35,12 @@ api_urlpatterns = [
     ),
     path("auth/logout/", views.LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", views.MeView.as_view(), name="auth-me"),
+    path("auth/notificacoes/", views.NotificacoesView.as_view(), name="auth-notificacoes"),
+    path(
+        "auth/notificacoes/<int:notificacao_id>/lida/",
+        views.MarcarNotificacaoLidaView.as_view(),
+        name="auth-notificacao-lida",
+    ),
     path("", include(router.urls)),
 ]
 

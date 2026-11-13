@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import (
-    ApiToken, Ativo, Cargo, GrupoA, LogAcao, MovimentacoesA,
+    ApiToken, Ativo, Cargo, GrupoA, LogAcao, MovimentacoesA, Notificacao,
     OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
@@ -121,6 +121,72 @@ class ApiViewsTests(TestCase):
         self.assertNotEqual(solicitacao.senha_hash, "senha-nova-123")
         self.assertTrue(check_password("senha-nova-123", solicitacao.senha_hash))
 
+    def test_public_signup_creates_admin_notification_that_can_be_marked_read(self):
+        APIClient().post(
+            "/api/auth/cadastro/",
+            {"nome": "Nova Colaboradora", "email": "NOVA@example.com", "senha": "senha-nova-123"},
+            format="json",
+        )
+        client = self.authenticate(self.admin)
+
+        listed = client.get("/api/auth/notificacoes/")
+        notification = listed.data[0]
+        marked = client.post(f"/api/auth/notificacoes/{notification['id']}/lida/")
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(notification["entidade"], "SolicitacaoCadastro")
+        self.assertEqual(notification["destino"], {
+            "name": "Users",
+            "query": {"tab": "requests", "requestId": str(SolicitacaoCadastro.objects.get().pk)},
+        })
+        self.assertTrue(marked.data["lida"])
+
+    def test_audited_asset_creation_creates_notification_with_direct_target(self):
+        client = self.authenticate(self.admin)
+        created = client.post(
+            "/api/ativos/",
+            {
+                "nome": "Projetor notificado",
+                "local_origem": self.sala.pk,
+                "local_atual": self.sala.pk,
+                "grupo": self.grupo.pk,
+                "status": True,
+            },
+            format="json",
+        )
+
+        listed = client.get("/api/auth/notificacoes/")
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data[0]["destino"], {
+            "name": "Labs",
+            "query": {"tab": "assets", "assetId": str(created.data["id_ativos"])},
+        })
+
+    def test_notifications_expire_seven_days_after_read_and_are_admin_only(self):
+        old_read = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação antiga",
+            acao="CRIAR",
+            entidade="Ativo",
+            lida_em=timezone.now() - timedelta(days=8),
+        )
+        unread = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação não lida",
+            acao="CRIAR",
+            entidade="Ativo",
+        )
+
+        listed = self.authenticate(self.admin).get("/api/auth/notificacoes/")
+        denied = self.authenticate(self.colaborador).get("/api/auth/notificacoes/")
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["id"] for item in listed.data], [unread.pk])
+        self.assertFalse(Notificacao.objects.filter(pk=old_read.pk).exists())
+        self.assertEqual(denied.status_code, 403)
+
     def test_signup_rejects_existing_or_pending_email(self):
         client = APIClient()
         payload = {"nome": "Nova Colaboradora", "email": self.admin.email, "senha": "senha-nova-123"}
@@ -165,6 +231,14 @@ class ApiViewsTests(TestCase):
         self.assertEqual(usuario.cargo, Cargo.COLABORADOR)
         self.assertTrue(check_password("senha-nova-123", usuario.senha))
         self.assertFalse(SolicitacaoCadastro.objects.filter(pk=solicitacao.pk).exists())
+        notifications = client.get("/api/auth/notificacoes/")
+        approval_notification = next(
+            item for item in notifications.data if item["acao"] == "APROVAR"
+        )
+        self.assertEqual(approval_notification["destino"], {
+            "name": "Users",
+            "query": {"userId": str(usuario.pk)},
+        })
 
         rejeitada = SolicitacaoCadastro.objects.create(
             nome="Outra Colaboradora",

@@ -52,6 +52,8 @@ Base: `http://127.0.0.1:8000/api`
 | POST             | `/auth/login/`                        | Login e emissão de token                                                     |
 | GET              | `/auth/me/`                           | Dados do usuário autenticado                                                 |
 | POST             | `/auth/logout/`                       | Revoga o token atual                                                         |
+| GET              | `/auth/notificacoes/`                 | Listar notificações do administrador autenticado                             |
+| POST             | `/auth/notificacoes/{id}/lida/`       | Marcar notificação como lida                                                 |
 | GET/POST         | `/usuarios/`                          | Listar/criar usuários (ADM)                                                  |
 | GET/PATCH/DELETE | `/usuarios/{id_user}/`                | Consultar/alterar/remover usuário (ADM)                                      |
 | GET/POST         | `/grupos/`                            | Listar/criar grupos de ativos                                                |
@@ -72,6 +74,8 @@ Base: `http://127.0.0.1:8000/api`
 | GET              | `/logs/`                              | Auditoria de ações (ADM)                                                     |
 
 Listas são paginadas com até 50 registros por página. Parâmetros úteis: `/ativos/?search=notebook`, `/ativos/?status=ativo`, `/ativos/?grupo=1`, `/ativos/?sala=1`, `/ordens-servico/?status=ABERTA` e `/movimentacoes/?ativo=1`.
+
+As notificações são criadas para administradores quando uma ação de negócio é registrada na auditoria ou uma solicitação de cadastro é enviada. Ao marcar como lida, ela é removida automaticamente após 7 dias. Eventos de login e logout não geram notificações.
 
 ## 5. Exemplos de payloads
 

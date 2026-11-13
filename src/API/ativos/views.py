@@ -29,6 +29,7 @@ from .models import (
     LogAcao,
     ManutencaoA,
     MovimentacoesA,
+    Notificacao,
     OSAtivo,
     OSSalaLab,
     OrdemServico,
@@ -45,6 +46,7 @@ from .serializers import (
     LogAcaoSerializer,
     LoginSerializer,
     ManutencaoASerializer,
+    NotificacaoSerializer,
     MovimentacoesASerializer,
     OrdemServicoSerializer,
     ResponsavelSalaSerializer,
@@ -178,7 +180,8 @@ class CadastroView(APIView):
     def post(self, request):
         serializer = CadastroSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        solicitacao = serializer.save()
+        registrar_acao(request, "CRIAR", "SolicitacaoCadastro", solicitacao.pk)
         return Response(
             {"detail": "Cadastro enviado. Aguarde a aprovação do administrador."},
             status=status.HTTP_201_CREATED,
@@ -216,13 +219,20 @@ class SolicitacaoCadastroActionView(APIView):
                 cargo=Cargo.COLABORADOR,
                 senha=solicitacao.senha_hash,
             )
-            registrar_acao(request, "APROVAR", "SolicitacaoCadastro", solicitacao.pk)
+            registrar_acao(
+                request,
+                "APROVAR",
+                "SolicitacaoCadastro",
+                solicitacao.pk,
+                detalhes={"usuario_id": usuario.pk},
+            )
             solicitacao.delete()
 
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED)
 
     def delete(self, request, solicitacao_id):
         solicitacao = get_object_or_404(SolicitacaoCadastro, pk=solicitacao_id)
+        registrar_acao(request, "EXCLUIR", "SolicitacaoCadastro", solicitacao.pk)
         solicitacao.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -243,6 +253,34 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UsuarioSerializer(request.user).data)
+
+
+class NotificacoesView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_read = ADMIN
+
+    def get(self, request):
+        prazo_expiracao = timezone.now() - timedelta(days=7)
+        Notificacao.objects.filter(
+            usuario=request.user,
+            lida_em__lt=prazo_expiracao,
+        ).delete()
+        notificacoes = Notificacao.objects.filter(usuario=request.user)
+        return Response(NotificacaoSerializer(notificacoes, many=True).data)
+
+
+class MarcarNotificacaoLidaView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_create = ADMIN
+
+    def post(self, request, notificacao_id):
+        notificacao = get_object_or_404(
+            Notificacao, pk=notificacao_id, usuario=request.user
+        )
+        if notificacao.lida_em is None:
+            notificacao.lida_em = timezone.now()
+            notificacao.save(update_fields=["lida_em"])
+        return Response(NotificacaoSerializer(notificacao).data)
 
 
 class AuditedModelViewSet(viewsets.ModelViewSet):

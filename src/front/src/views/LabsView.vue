@@ -343,6 +343,7 @@ const assetFilters = reactive({
   patrimony: '',
   name: '',
   location: '',
+  currentLabId: '',
   status: ''
 })
 const assetPageSize = ref(10)
@@ -366,12 +367,15 @@ const filteredRows = computed(() => {
     const matchesLocation = !assetFilters.location
       || row.origin === assetFilters.location
       || row.current === assetFilters.location
+    const matchesCurrentLab = !assetFilters.currentLabId
+      || String(row.currentLabId) === String(assetFilters.currentLabId)
     const matchesStatus = !assetFilters.status || row.status === assetFilters.status
 
     return matchesSearch
       && matchesPatrimony
       && matchesName
       && matchesLocation
+      && matchesCurrentLab
       && matchesStatus
   })
 })
@@ -397,7 +401,17 @@ function clearAssetFilters() {
   assetFilters.patrimony = ''
   assetFilters.name = ''
   assetFilters.location = ''
+  assetFilters.currentLabId = ''
   assetFilters.status = ''
+}
+
+function showAssetsForLab(lab) {
+  if (!lab) return
+
+  clearAssetFilters()
+  assetFilters.currentLabId = String(lab.id)
+  activeTab.value = 'assets'
+  showLabDetailsModal.value = false
 }
 
 function resetAssetForm() {
@@ -939,7 +953,7 @@ function handleRowAction({ action, row }) {
             <Pencil :size="16" />
             Editar
           </Button>
-          <Button variant="primary" size="sm" @click="activeTab = 'assets'; showLabDetailsModal = false">
+          <Button variant="primary" size="sm" @click="showAssetsForLab(selectedLab)">
             Ver Ativos
           </Button>
         </template>
@@ -953,7 +967,7 @@ function handleRowAction({ action, row }) {
       </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
-          :responsible="lab.responsible" :can-manage="canManageLabs" @view-assets="activeTab = 'assets'"
+          :responsible="lab.responsible" :can-manage="canManageLabs" @view-assets="showAssetsForLab(lab)"
           @view-details="openLabDetails(lab)" @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>
@@ -1163,6 +1177,17 @@ function handleRowAction({ action, row }) {
             <option value="">Selecione</option>
             <option v-for="location in locationOptions" :key="location" :value="location">
               {{ location }}
+            </option>
+          </select>
+        </label>
+
+        <label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
+          Laboratório atual
+          <select v-model="assetFilters.currentLabId"
+            class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+            <option value="">Todos</option>
+            <option v-for="lab in labs" :key="`asset-current-lab-${lab.id}`" :value="String(lab.id)">
+              {{ lab.title }} · {{ lab.acronym }}
             </option>
           </select>
         </label>

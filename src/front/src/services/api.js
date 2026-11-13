@@ -51,6 +51,15 @@ export async function apiRequest(path, options = {}) {
             throw error
         }
 
+        const method = (options.method || 'GET').toUpperCase()
+        if (
+            typeof window !== 'undefined' &&
+            !['GET', 'HEAD', 'OPTIONS'].includes(method) &&
+            !path.startsWith('/auth/notificacoes/')
+        ) {
+            window.dispatchEvent(new Event('notifications-refresh'))
+        }
+
         return data
     } finally {
         apiLoadingCount.value = Math.max(0, apiLoadingCount.value - 1)

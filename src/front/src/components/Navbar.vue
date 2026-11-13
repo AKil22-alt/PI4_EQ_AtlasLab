@@ -34,7 +34,7 @@ onMounted(async () => {
         }
     }
 
-    if (authStore.currentUser?.is_superuser) {
+    if (authStore.currentUser?.cargo === 'ADM') {
         window.addEventListener('notifications-refresh', refreshNotifications)
         try {
             await loadNotifications()
@@ -90,15 +90,15 @@ async function markNotificationAsRead(notification) {
 
 function openNotification(notification) {
     showNotifications.value = false
-    if (!notification.solicitacao_id) return
+    if (!notification.lida) {
+        markNotificationAsRead(notification)
+    }
+    if (notification.destino?.name) router.push(notification.destino)
+}
 
-    router.push({
-        name: 'Users',
-        query: {
-            tab: 'requests',
-            requestId: notification.solicitacao_id
-        }
-    })
+function viewAllNotifications() {
+    showNotifications.value = false
+    router.push({ name: 'Notifications' })
 }
 
 onUnmounted(() => {
@@ -130,7 +130,7 @@ onUnmounted(() => {
                 <!-- O painel é renderizado somente enquanto showNotifications for true. -->
                 <NotificationPanel v-if="showNotifications" :notifications="notifications"
                     @close="showNotifications = false" @mark-read="markNotificationAsRead" @select="openNotification"
-                    @view-all="showNotifications = false" />
+                    @view-all="viewAllNotifications" />
             </div>
 
 
