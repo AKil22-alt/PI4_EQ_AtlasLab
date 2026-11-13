@@ -190,7 +190,7 @@ class SolicitacoesCadastroView(APIView):
     roles_read = ADMIN
 
     def get(self, request):
-        solicitacoes = SolicitacaoCadastro.objects.all()
+        solicitacoes = SolicitacaoCadastro.objects.all().order_by("-criada_em", "-id")
         serializer = SolicitacaoCadastroSerializer(solicitacoes, many=True)
         return Response(serializer.data)
 
@@ -281,7 +281,7 @@ class AuditedModelViewSet(viewsets.ModelViewSet):
 
 
 class UsuarioViewSet(AuditedModelViewSet):
-    queryset = Usuario.objects.all().order_by("id_user")
+    queryset = Usuario.objects.all().order_by("-id_user")
     serializer_class = UsuarioSerializer
     lookup_field = "id_user"
     roles_read = ADMIN
@@ -312,7 +312,7 @@ class GrupoAViewSet(AuditedModelViewSet):
 
 
 class SalaLabViewSet(AuditedModelViewSet):
-    queryset = SalaLab.objects.select_related("responsavel").all().order_by("id_sala")
+    queryset = SalaLab.objects.select_related("responsavel").all().order_by("-id_sala")
     serializer_class = SalaLabSerializer
     lookup_field = "id_sala"
     roles_create = TECNICO
@@ -374,7 +374,7 @@ class AtivoViewSet(AuditedModelViewSet):
     def get_queryset(self):
         queryset = Ativo.objects.select_related(
             "grupo", "local_origem", "local_atual"
-        ).all().order_by("id_ativos")
+        ).all().order_by("-id_ativos")
         status_param = self.request.query_params.get("status")
         if status_param is not None:
             normalized_status = status_param.strip().lower()
@@ -568,7 +568,7 @@ class AtivoViewSet(AuditedModelViewSet):
 class OrdemServicoViewSet(AuditedModelViewSet):
     queryset = OrdemServico.objects.select_related("responsavel").prefetch_related(
         "usuarios", "salas", "ativos", "manutencoes"
-    ).order_by("id_ordem")
+    ).order_by("-id_ordem")
     serializer_class = OrdemServicoSerializer
     lookup_field = "id_ordem"
     entity_name = "OrdemServico"

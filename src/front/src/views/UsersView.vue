@@ -31,12 +31,15 @@ const cargoLabels = {
 	TEC: 'Técnico',
 	CLB: 'Colaborador'
 }
-const users = computed(() => authStore.users.map((user) => ({
-	id: user.id_user,
-	name: user.nome,
-	role: cargoLabels[user.cargo] || user.cargo,
-	email: user.email
-})))
+const users = computed(() => authStore.users
+	.slice()
+	.sort((first, second) => second.id_user - first.id_user)
+	.map((user) => ({
+		id: user.id_user,
+		name: user.nome,
+		role: cargoLabels[user.cargo] || user.cargo,
+		email: user.email
+	})))
 const filteredUsers = computed(() => {
 	const query = searchText.value.trim().toLowerCase()
 
@@ -227,8 +230,8 @@ async function confirmRequestAction() {
 			: 'Recusar solicitação'" :message="pendingRequestAction?.action === 'approve'
 				? 'A conta será criada como colaborador.'
 				: 'Tem certeza que deseja recusar esta solicitação? Essa ação não pode ser revertida.'" :confirm-text="pendingRequestAction?.action === 'approve'
-				? 'Aceitar'
-				: 'Recusar'" @confirm="confirmRequestAction" />
+					? 'Aceitar'
+					: 'Recusar'" @confirm="confirmRequestAction" />
 
 		<Modal v-model="showRoleModal" title="Editar cargo" size="sm">
 			<label class="flex flex-col gap-2 text-sm font-medium text-text-primary">

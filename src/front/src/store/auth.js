@@ -83,13 +83,18 @@ export const useAuthStore = defineStore('auth', () => {
 			listUsersRequest(),
 			listRequestsRequest()
 		])
-		users.value = loadedUsers.results || loadedUsers
-		pendingRequests.value = loadedRequests.map((request) => ({
+		users.value = (loadedUsers.results || loadedUsers)
+			.slice()
+			.sort((first, second) => second.id_user - first.id_user)
+		pendingRequests.value = loadedRequests
+			.slice()
+			.sort((first, second) => new Date(second.criada_em) - new Date(first.criada_em))
+			.map((request) => ({
 			id: request.id,
 			name: request.nome,
 			email: request.email,
 			requestedAt: new Date(request.criada_em).toLocaleDateString('pt-BR')
-		}))
+			}))
 	}
 
 	async function approveRequest(requestId) {

@@ -156,7 +156,7 @@ onMounted(async () => {
   try {
     const response = await listLaboratoriesRequest()
     const laboratories = Array.isArray(response) ? response : response.results
-    labs.push(...laboratories.map(mapLaboratory))
+    labs.push(...laboratories.map(mapLaboratory).sort((first, second) => second.id - first.id))
   } catch (error) {
     console.error('Erro ao carregar laboratórios:', error)
   }
@@ -172,7 +172,7 @@ onMounted(async () => {
 
   try {
     const assets = await listAllPagesRequest('/ativos/')
-    rows.push(...assets.map(mapAsset))
+    rows.push(...assets.map(mapAsset).sort((first, second) => second.id - first.id))
   } catch (error) {
     console.error('Erro ao carregar ativos:', error)
   }
@@ -551,7 +551,7 @@ async function createAsset() {
     }
     const asset = await createAssetRequest(payload)
 
-    rows.push(mapAsset(asset))
+    rows.unshift(mapAsset(asset))
 
     showAssetModal.value = false
     resetAssetForm()
@@ -760,7 +760,8 @@ function handleRowAction({ action, row }) {
 
 <template>
   <main class="min-w-0 space-y-6 px-4 pb-8 pt-0 sm:px-8">
-    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios, ativos e movimentações">
+    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8"
+      aria-label="Seções de laboratórios, ativos e movimentações">
       <button type="button" :class="[
         'border-b-2 px-2 pb-2 text-sm',
         activeTab === 'labs'
@@ -897,9 +898,8 @@ function handleRowAction({ action, row }) {
       </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
-          :responsible="lab.responsible" :can-manage="canManageLabs"
-          @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
-          @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
+          :responsible="lab.responsible" :can-manage="canManageLabs" @view-assets="activeTab = 'assets'"
+          @view-details="openLabDetails(lab)" @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>
 
@@ -919,8 +919,8 @@ function handleRowAction({ action, row }) {
               <label for="asset-qr-code" class="text-sm font-medium text-text-primary">
                 QR Code
               </label>
-              <input id="asset-qr-code" :value="assetForm.qrCode || 'Gerado automaticamente ao criar'" type="text" readonly
-                class="w-full rounded-lg bg-gray-100 px-3 py-3 text-sm text-text-secondary outline-none" />
+              <input id="asset-qr-code" :value="assetForm.qrCode || 'Gerado automaticamente ao criar'" type="text"
+                readonly class="w-full rounded-lg bg-gray-100 px-3 py-3 text-sm text-text-secondary outline-none" />
             </div>
 
             <div class="space-y-2">
@@ -1058,7 +1058,8 @@ function handleRowAction({ action, row }) {
                       TA {{ group.numero_ta }} · {{ group.tipo }} · {{ group.setor }}
                     </p>
                   </div>
-                  <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-1 hover:bg-red-2"
+                  <button type="button"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-1 hover:bg-red-2"
                     :aria-label="`Editar grupo ${group.nome}`" :title="`Editar grupo ${group.nome}`"
                     @click="editGroup(group)">
                     <Pencil :size="16" />
@@ -1203,7 +1204,8 @@ function handleRowAction({ action, row }) {
             </p>
             <p v-else-if="assetMovementsError" class="mt-3 text-sm text-red-primary" role="alert">
               {{ assetMovementsError }}
-              <button class="ml-1 font-semibold underline" type="button" @click="loadSelectedAssetHistory(selectedAsset.id)">
+              <button class="ml-1 font-semibold underline" type="button"
+                @click="loadSelectedAssetHistory(selectedAsset.id)">
                 Tentar novamente
               </button>
             </p>
@@ -1262,7 +1264,8 @@ function handleRowAction({ action, row }) {
       <p v-if="clearMovementHistoryError" class="text-sm text-red-primary" role="alert">
         {{ clearMovementHistoryError }}
       </p>
-      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary" role="status">
+      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary"
+        role="status">
         Carregando movimentações...
       </p>
       <div v-else-if="movementHistoryError" class="rounded-lg bg-white px-4 py-6" role="alert">
@@ -1275,7 +1278,8 @@ function handleRowAction({ action, row }) {
       <p v-else-if="allMovementRecords.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
         Nenhuma movimentação registrada.
       </p>
-      <p v-else-if="filteredMovementRows.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+      <p v-else-if="filteredMovementRows.length === 0"
+        class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
         Nenhuma movimentação corresponde à pesquisa.
       </p>
       <Table v-else :columns="movementColumns" :rows="filteredMovementRows" row-key="id" :actions="[]" />
@@ -1416,7 +1420,8 @@ function handleRowAction({ action, row }) {
 
         <p v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
           class="rounded-lg border border-red-primary/30 p-3 text-sm text-text-primary" role="note">
-          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço permanecerão cadastradas.
+          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço
+          permanecerão cadastradas.
         </p>
       </div>
 
@@ -1424,7 +1429,8 @@ function handleRowAction({ action, row }) {
         <Button variant="outline" size="sm" @click="showAssetDeletionErrorModal = false">
           Fechar
         </Button>
-        <Button v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+        <Button
+          v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
           variant="primary" size="sm" @click="forceDeletePendingAsset">
           Excluir mesmo assim
         </Button>
@@ -1435,15 +1441,15 @@ function handleRowAction({ action, row }) {
       ? 'Excluir ativo'
       : confirmationAction === 'delete-lab'
         ? 'Excluir laboratório'
-      : confirmationAction === 'clear-movements'
-        ? 'Limpar histórico de movimentações'
-        : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
-        ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-        : confirmationAction === 'delete-asset'
-          ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
         : confirmationAction === 'clear-movements'
-          ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
-          : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+          ? 'Limpar histórico de movimentações'
+          : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
+          ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+          : confirmationAction === 'delete-asset'
+            ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
+            : confirmationAction === 'clear-movements'
+              ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
+              : 'Tem certeza que deseja salvar as alterações deste ativo?'"
       :confirm-text="confirmationAction === 'delete-asset' || confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
       @confirm="confirmAction" />
   </main>

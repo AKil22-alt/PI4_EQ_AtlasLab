@@ -216,6 +216,25 @@ class ApiViewsTests(TestCase):
         self.assertEqual(response.data["responsavel"], tecnico.pk)
         self.assertEqual(response.data["responsavel_detalhes"]["nome"], "Técnico Atlas")
 
+    def test_service_orders_are_listed_newest_first(self):
+        older_order = OrdemServico.objects.create(
+            titulo="Ordem antiga",
+            descricao="Descrição da ordem antiga.",
+        )
+        newer_order = OrdemServico.objects.create(
+            titulo="Ordem nova",
+            descricao="Descrição da ordem nova.",
+        )
+
+        response = self.authenticate(self.admin).get("/api/ordens-servico/")
+        orders = response.data.get("results", response.data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [order["id_ordem"] for order in orders],
+            [newer_order.pk, older_order.pk],
+        )
+
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)
         sala_destino = SalaLab.objects.create(
