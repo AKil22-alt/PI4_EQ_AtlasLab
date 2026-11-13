@@ -14,6 +14,7 @@ import {
 	listAssetGroupsRequest,
 	listAssetsRequest,
 	listLaboratoriesRequest,
+	listLaboratoryResponsiblesRequest,
 	listServiceOrdersRequest,
 	updateServiceOrderRequest
 } from '../services/api'
@@ -24,8 +25,9 @@ const columns = [
   { key: 'conclusionDate', label: 'Data de Conclusão', width: '15%' },
   { key: 'sector', label: 'Setor', width: '14%' },
   { key: 'lab', label: 'Laboratório', width: '12%' },
+	{ key: 'responsible', label: 'Responsável', width: '14%' },
   { key: 'status', label: 'Status', width: '10%', type: 'status' },
-	{ key: 'description', label: 'Descrição', width: '12%' },
+	{ key: 'description', label: 'Descrição', width: '10%' },
 	{ key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
@@ -33,6 +35,7 @@ const rows = reactive([])
 const laboratories = reactive([])
 const assetGroups = reactive([])
 const assets = reactive([])
+const responsibles = reactive([])
 const isLoadingOrders = ref(false)
 const isLoadingOptions = ref(false)
 const isSaving = ref(false)
@@ -53,6 +56,7 @@ const canManageOrders = computed(() => ['ADM', 'TEC'].includes(authStore.current
 function mapServiceOrder(order) {
 	const assets = order.ativos_detalhes || []
 	const rooms = order.salas_detalhes || []
+	const responsible = order.responsavel_detalhes
 	const sectors = assets
 		.map((asset) => asset.grupo_detalhes?.setor)
 		.filter(Boolean)
@@ -69,6 +73,8 @@ function mapServiceOrder(order) {
 		conclusionDate: order.data_termino ? formatDate(order.data_termino) : '',
 		sector: [...new Set(sectors)].join(', ') || '—',
 		lab: rooms.map((room) => room.localizacao || room.nome).join(', ') || '—',
+		responsibleId: order.responsavel || '',
+		responsible: responsible?.nome || 'Não informado',
 		status: statusLabels[order.status] || order.status,
 		description: order.descricao
 	}
@@ -98,14 +104,17 @@ async function loadFormOptions() {
 	optionsError.value = ''
 
 	try {
-		const [labResponse, groupResponse, assetResponse] = await Promise.all([
+		const requests = [
 			listLaboratoriesRequest(),
 			listAssetGroupsRequest(),
 			listAssetsRequest()
-		])
+		]
+		if (canManageOrders.value) requests.push(listLaboratoryResponsiblesRequest())
+		const [labResponse, groupResponse, assetResponse, responsibleResponse] = await Promise.all(requests)
 		laboratories.splice(0, laboratories.length, ...responseItems(labResponse))
 		assetGroups.splice(0, assetGroups.length, ...responseItems(groupResponse))
 		assets.splice(0, assets.length, ...responseItems(assetResponse))
+		if (responsibleResponse) responsibles.splice(0, responsibles.length, ...responseItems(responsibleResponse))
 	} catch (error) {
 		optionsError.value = error.message || 'Não foi possível carregar laboratórios, setores e ativos.'
 	} finally {
@@ -134,7 +143,7 @@ const actionError = ref('')
 const searchText = ref('')
 const filters = reactive({ number: '', sector: '', lab: '', status: '' })
 const orderForm = reactive({
-	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', status: 'ABERTA', description: ''
+	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', responsible: '', status: 'ABERTA', description: ''
 })
 
 const isEditing = computed(() => editingOrderId.value !== null)
@@ -177,6 +186,7 @@ function resetOrderForm() {
 	orderForm.sector = ''
 	orderForm.lab = ''
 	orderForm.asset = ''
+	orderForm.responsible = ''
 	orderForm.status = 'ABERTA'
 	orderForm.description = ''
 	formError.value = ''
@@ -232,6 +242,7 @@ function openEditForm(order) {
 	orderForm.sector = order.sectorValue || order.sector
 	orderForm.lab = order.labId ? String(order.labId) : ''
 	orderForm.asset = order.assetId ? String(order.assetId) : ''
+	orderForm.responsible = order.responsibleId ? String(order.responsibleId) : ''
 	orderForm.status = order.statusValue || 'ABERTA'
 	orderForm.description = order.description
 	showCreateModal.value = true
@@ -260,6 +271,7 @@ async function submitOrderChanges() {
 			descricao: orderForm.description.trim(),
 			data_termino: orderForm.conclusionDate || null,
 			status: orderForm.status,
+			responsavel: orderForm.responsible ? Number(orderForm.responsible) : null,
 			sala_ids: [Number(orderForm.lab)],
 			ativo_ids: [Number(orderForm.asset)]
 		})
@@ -287,6 +299,7 @@ async function submitNewOrder() {
 			data_hora: `${orderForm.openingDate}T00:00:00`,
 			data_termino: orderForm.conclusionDate || null,
 			status: orderForm.status,
+			...(orderForm.responsible ? { responsavel: Number(orderForm.responsible) } : {}),
 			sala_ids: [Number(orderForm.lab)],
 			ativo_ids: [Number(orderForm.asset)]
 		})
@@ -536,6 +549,16 @@ function handleRowAction({ action, row }) {
 					</select>
 				</div>
 
+				<div v-if="canManageOrders" class="space-y-2">
+					<label for="order-responsible" class="text-xs font-medium text-text-primary">Responsável</label>
+					<select id="order-responsible" v-model="orderForm.responsible" :disabled="isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+						<option value="">Não atribuído</option>
+						<option v-for="responsible in responsibles" :key="responsible.id_user" :value="String(responsible.id_user)">
+							{{ responsible.nome }}
+						</option>
+					</select>
+				</div>
+
 				<div class="space-y-2">
 					<label for="order-status" class="text-xs font-medium text-text-primary">Status <span class="text-red-primary">*</span></label>
 					<select id="order-status" v-model="orderForm.status" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
@@ -588,6 +611,10 @@ function handleRowAction({ action, row }) {
 						<div class="flex items-start justify-between gap-6">
 							<dt class="font-medium text-text-primary">Status</dt>
 							<dd class="text-right text-text-secondary">{{ selectedOrder.status }}</dd>
+						</div>
+						<div class="flex items-start justify-between gap-6">
+							<dt class="font-medium text-text-primary">Responsável</dt>
+							<dd class="text-right text-text-secondary">{{ selectedOrder.responsible }}</dd>
 						</div>
 						<div class="space-y-2">
 							<dt class="font-medium text-text-primary">Descrição</dt>

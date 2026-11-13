@@ -566,7 +566,7 @@ class AtivoViewSet(AuditedModelViewSet):
 
 
 class OrdemServicoViewSet(AuditedModelViewSet):
-    queryset = OrdemServico.objects.all().prefetch_related(
+    queryset = OrdemServico.objects.select_related("responsavel").prefetch_related(
         "usuarios", "salas", "ativos", "manutencoes"
     ).order_by("id_ordem")
     serializer_class = OrdemServicoSerializer

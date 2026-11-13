@@ -194,6 +194,28 @@ class ApiViewsTests(TestCase):
         self.assertEqual(list(ordem.usuarios.all()), [self.colaborador])
         self.assertEqual(response.data["data_termino"], "2026-11-08")
 
+    def test_service_order_can_be_created_with_responsible(self):
+        tecnico = Usuario.objects.create(
+            nome="Técnico Atlas",
+            email="tecnico@example.com",
+            cargo=Cargo.TECNICO,
+            senha=make_password("senha-segura-123"),
+        )
+
+        response = self.authenticate(self.admin).post(
+            "/api/ordens-servico/",
+            {
+                "titulo": "Manutenção do notebook",
+                "descricao": "Verificar o equipamento.",
+                "responsavel": tecnico.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["responsavel"], tecnico.pk)
+        self.assertEqual(response.data["responsavel_detalhes"]["nome"], "Técnico Atlas")
+
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)
         sala_destino = SalaLab.objects.create(

@@ -155,6 +155,7 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
     manutencao_ids = serializers.PrimaryKeyRelatedField(
         source="manutencoes", queryset=ManutencaoA.objects.all(), many=True, required=False, write_only=True
     )
+    responsavel_detalhes = UsuarioResumoSerializer(source="responsavel", read_only=True)
     usuarios_detalhes = UsuarioResumoSerializer(source="usuarios", many=True, read_only=True)
     salas_detalhes = SalaLabSerializer(source="salas", many=True, read_only=True)
     ativos_detalhes = AtivoSerializer(source="ativos", many=True, read_only=True)
@@ -164,6 +165,7 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
         model = OrdemServico
         fields = [
             "id_ordem", "titulo", "descricao", "data_hora", "data_termino", "status",
+            "responsavel", "responsavel_detalhes",
             "usuario_ids", "sala_ids", "ativo_ids", "manutencao_ids",
             "usuarios_detalhes", "salas_detalhes", "ativos_detalhes", "manutencoes_detalhes",
         ]

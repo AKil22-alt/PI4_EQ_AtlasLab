@@ -128,6 +128,10 @@ class OrdemServico(models.Model):
     data_hora = models.DateTimeField(default=timezone.now)
     data_termino = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ABERTA)
+    responsavel = models.ForeignKey(
+        Usuario, on_delete=models.SET_NULL, blank=True, null=True,
+        related_name="ordens_responsavel",
+    )
     usuarios = models.ManyToManyField(Usuario, through="OSUser", related_name="ordens_servico")
     salas = models.ManyToManyField(SalaLab, through="OSSalaLab", related_name="ordens_servico")
     ativos = models.ManyToManyField(Ativo, through="OSAtivo", related_name="ordens_servico")
