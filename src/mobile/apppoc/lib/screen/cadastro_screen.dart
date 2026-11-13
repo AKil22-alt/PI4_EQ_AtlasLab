@@ -13,18 +13,25 @@ class CadastroScreen extends StatefulWidget {
 class _CadastroScreenState extends State<CadastroScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nome = TextEditingController();
-  final _usuario = TextEditingController();
+  final _email = TextEditingController();
   final _senha = TextEditingController();
   final _confirmarSenha = TextEditingController();
 
+  late final ApiService _api;
   bool _carregando = false;
   bool _obscureSenha = true;
   bool _obscureConfirmarSenha = true;
 
   @override
+  void initState() {
+    super.initState();
+    _api = widget.api ?? ApiService();
+  }
+
+  @override
   void dispose() {
     _nome.dispose();
-    _usuario.dispose();
+    _email.dispose();
     _senha.dispose();
     _confirmarSenha.dispose();
     super.dispose();
@@ -35,26 +42,76 @@ class _CadastroScreenState extends State<CadastroScreen> {
     setState(() => _carregando = true);
 
     try {
-      // ===================================================================
-      // INTEGRAÇÃO COM CADASTRO:
-      // Aqui você poderá chamar a API para registrar o novo usuário.
-      // Ex: await widget.api?.cadastrarUsuario(...);
-      // ===================================================================
-      await Future.delayed(const Duration(milliseconds: 600));
+      // Envia a solicitação de cadastro para o backend (será armazenada como SolicitacaoCadastro)
+      final mensagem = await _api.cadastrar(
+        nome: _nome.text.trim(),
+        email: _email.text.trim(),
+        senha: _senha.text,
+      );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cadastro concluído com sucesso! Faça login.'),
-          backgroundColor: AppColors.statusAtivo,
+      setState(() => _carregando = false);
+
+      // Exibe diálogo informando com clareza que o cadastro foi enviado para aprovação
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: AppColors.statusAtivo, size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Solicitação Enviada',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            mensagem.isNotEmpty
+                ? mensagem
+                : 'Cadastro enviado com sucesso! Aguarde a aprovação do administrador para liberar o seu acesso.',
+            style: const TextStyle(
+              fontSize: 15,
+              color: AppColors.textPrimary,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.mainColor,
+                foregroundColor: AppColors.textOnMain,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Entendi'),
+            ),
+          ],
         ),
       );
-      Navigator.pop(context);
+
+      if (!mounted) return;
+      // Retorna para a tela anterior (Login) passando o e-mail cadastrado
+      Navigator.pop(context, _email.text.trim());
     } catch (e) {
       if (mounted) {
+        final mensagemErro =
+            e is ApiException ? e.mensagem : 'Erro ao cadastrar: $e';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao cadastrar: $e'),
+            content: Text(mensagemErro),
             backgroundColor: AppColors.statusInativo,
           ),
         );
@@ -71,7 +128,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
     final isKeyboardOpen = keyboardInset > 0;
 
     // Altura proporcional para a onda inferior
-    final bottomHeight = (screenHeight * 0.72).clamp(540.0, 700.0);
+    final bottomHeight = (screenHeight * 0.74).clamp(560.0, 720.0);
 
     // Espaçamento superior para descer os campos abaixo da curva da onda
     final waveTopPadding = isKeyboardOpen
@@ -158,20 +215,24 @@ class _CadastroScreenState extends State<CadastroScreen> {
                                         ),
                                         const SizedBox(height: 6),
                                         const Text(
-                                          'Preencha os dados para criar seu acesso',
+                                          'Preencha os dados para solicitar seu acesso',
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontSize: 15,
                                             color: AppColors.textSecondary,
                                           ),
                                         ),
-                                        const SizedBox(height: 20),
+                                        const SizedBox(height: 18),
+
+                                        // Nome Completo
                                         TextFormField(
                                           controller: _nome,
                                           textInputAction: TextInputAction.next,
+                                          textCapitalization:
+                                              TextCapitalization.words,
                                           decoration: InputDecoration(
                                             labelText: 'Nome Completo',
-                                            hintText: 'Digite seu nome',
+                                            hintText: 'Digite seu nome completo',
                                             prefixIcon: const Icon(
                                               Icons.badge_outlined,
                                               color: AppColors.mainColor,
@@ -208,20 +269,30 @@ class _CadastroScreenState extends State<CadastroScreen> {
                                               vertical: 14,
                                             ),
                                           ),
-                                          validator: (v) =>
-                                              v == null || v.isEmpty
-                                                  ? 'Informe seu nome'
-                                                  : null,
+                                          validator: (v) {
+                                            if (v == null || v.trim().isEmpty) {
+                                              return 'Informe seu nome completo';
+                                            }
+                                            if (v.trim().length < 3) {
+                                              return 'O nome deve ter pelo menos 3 caracteres';
+                                            }
+                                            return null;
+                                          },
                                         ),
                                         const SizedBox(height: 12),
+
+                                        // E-mail
                                         TextFormField(
-                                          controller: _usuario,
+                                          controller: _email,
                                           textInputAction: TextInputAction.next,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          autocorrect: false,
                                           decoration: InputDecoration(
-                                            labelText: 'Usuário',
-                                            hintText: 'Digite seu usuário',
+                                            labelText: 'E-mail',
+                                            hintText: 'Digite seu e-mail',
                                             prefixIcon: const Icon(
-                                              Icons.person_outline_rounded,
+                                              Icons.email_outlined,
                                               color: AppColors.mainColor,
                                             ),
                                             filled: true,
@@ -256,19 +327,30 @@ class _CadastroScreenState extends State<CadastroScreen> {
                                               vertical: 14,
                                             ),
                                           ),
-                                          validator: (v) =>
-                                              v == null || v.isEmpty
-                                                  ? 'Informe o usuário'
-                                                  : null,
+                                          validator: (v) {
+                                            if (v == null || v.trim().isEmpty) {
+                                              return 'Informe seu e-mail';
+                                            }
+                                            final emailRegex = RegExp(
+                                              r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                                            );
+                                            if (!emailRegex.hasMatch(v.trim())) {
+                                              return 'Informe um e-mail válido';
+                                            }
+                                            return null;
+                                          },
                                         ),
                                         const SizedBox(height: 12),
+
+                                        // Senha
                                         TextFormField(
                                           controller: _senha,
                                           obscureText: _obscureSenha,
                                           textInputAction: TextInputAction.next,
                                           decoration: InputDecoration(
                                             labelText: 'Senha',
-                                            hintText: 'Crie uma senha',
+                                            hintText:
+                                                'Crie uma senha (mínimo 8 caracteres)',
                                             prefixIcon: const Icon(
                                               Icons.lock_outline_rounded,
                                               color: AppColors.mainColor,
@@ -318,16 +400,25 @@ class _CadastroScreenState extends State<CadastroScreen> {
                                               vertical: 14,
                                             ),
                                           ),
-                                          validator: (v) => v == null ||
-                                                  v.length < 4
-                                              ? 'A senha deve ter ao menos 4 caracteres'
-                                              : null,
+                                          validator: (v) {
+                                            if (v == null || v.isEmpty) {
+                                              return 'Crie uma senha';
+                                            }
+                                            if (v.length < 8) {
+                                              return 'A senha deve ter pelo menos 8 caracteres';
+                                            }
+                                            return null;
+                                          },
                                         ),
                                         const SizedBox(height: 12),
+
+                                        // Confirmar Senha
                                         TextFormField(
                                           controller: _confirmarSenha,
                                           obscureText: _obscureConfirmarSenha,
                                           textInputAction: TextInputAction.done,
+                                          onFieldSubmitted: (_) =>
+                                              _carregando ? null : _cadastrar(),
                                           decoration: InputDecoration(
                                             labelText: 'Confirmar Senha',
                                             hintText: 'Repita sua senha',
@@ -433,7 +524,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
                                                     Icons.person_add_rounded),
                                             label: Text(
                                               _carregando
-                                                  ? 'Cadastrando...'
+                                                  ? 'Enviando solicitação...'
                                                   : 'Cadastrar',
                                               style: const TextStyle(
                                                 fontSize: 18,

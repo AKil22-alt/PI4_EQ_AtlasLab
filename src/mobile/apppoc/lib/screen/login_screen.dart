@@ -14,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usuario = TextEditingController();
+  final _email = TextEditingController();
   final _senha = TextEditingController();
 
   late final ApiService _api;
@@ -29,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _usuario.dispose();
+    _email.dispose();
     _senha.dispose();
     super.dispose();
   }
@@ -39,18 +39,32 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _carregando = true);
 
     try {
-      await _api.login(_usuario.text.trim(), _senha.text);
+      final resposta = await _api.login(
+        _email.text.trim(),
+        _senha.text,
+      );
       if (!mounted) return;
+      setState(() => _carregando = false);
+
+      final usuario = resposta['usuario'] as Map<String, dynamic>?;
+      final nome = usuario?['nome'] as String?;
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const TelaHome()),
+        MaterialPageRoute(
+          builder: (_) => TelaHome(
+            nomeUsuario: nome,
+            api: _api,
+          ),
+        ),
       );
     } catch (e) {
       if (mounted) {
+        final mensagemErro =
+            e is ApiException ? e.mensagem : 'Falha no Login: $e';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Falha no Login: $e'),
+            content: Text(mensagemErro),
             backgroundColor: AppColors.statusInativo,
           ),
         );
@@ -60,13 +74,18 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _irParaCadastro() {
-    Navigator.push(
+  Future<void> _irParaCadastro() async {
+    final emailCadastrado = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (context) => CadastroScreen(api: _api),
       ),
     );
+
+    // Se o usuário completou a solicitação de cadastro, pré-preenche o e-mail na tela de login
+    if (emailCadastrado != null && emailCadastrado.isNotEmpty) {
+      _email.text = emailCadastrado;
+    }
   }
 
   @override
@@ -172,14 +191,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 22),
+
+                                        // Campo de E-mail
                                         TextFormField(
-                                          controller: _usuario,
+                                          controller: _email,
+                                          keyboardType:
+                                              TextInputType.emailAddress,
+                                          autocorrect: false,
                                           textInputAction: TextInputAction.next,
                                           decoration: InputDecoration(
-                                            labelText: 'Usuário',
-                                            hintText: 'Digite seu usuário',
+                                            labelText: 'E-mail',
+                                            hintText: 'Digite seu e-mail',
                                             prefixIcon: const Icon(
-                                              Icons.person_outline_rounded,
+                                              Icons.email_outlined,
                                               color: AppColors.mainColor,
                                             ),
                                             filled: true,
@@ -214,12 +238,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                               vertical: 14,
                                             ),
                                           ),
-                                          validator: (v) =>
-                                              v == null || v.isEmpty
-                                                  ? 'Informe o usuário'
-                                                  : null,
+                                          validator: (v) {
+                                            if (v == null || v.trim().isEmpty) {
+                                              return 'Informe o e-mail';
+                                            }
+                                            final emailRegex = RegExp(
+                                              r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                                            );
+                                            if (!emailRegex.hasMatch(v.trim())) {
+                                              return 'Informe um e-mail válido';
+                                            }
+                                            return null;
+                                          },
                                         ),
                                         const SizedBox(height: 14),
+
+                                        // Campo de Senha
                                         TextFormField(
                                           controller: _senha,
                                           obscureText: _obscureSenha,
@@ -333,14 +367,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                                 fontWeight: FontWeight.bold,
                                               ),
                                             ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        const Text(
-                                          'Utilize um usuário cadastrado no Django',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: AppColors.textSecondary,
                                           ),
                                         ),
                                         const SizedBox(height: 14),

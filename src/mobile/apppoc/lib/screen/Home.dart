@@ -1,5 +1,6 @@
 // ignore_for_file: file_names
 import 'package:apppoc/screen/ScannerScreen.dart';
+import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
 import 'package:flutter/material.dart';
 
@@ -31,7 +32,14 @@ class AtividadeItem {
 }
 
 class TelaHome extends StatefulWidget {
-  const TelaHome({super.key});
+  final String? nomeUsuario;
+  final ApiService? api;
+
+  const TelaHome({
+    super.key,
+    this.nomeUsuario,
+    this.api,
+  });
 
   @override
   State<TelaHome> createState() => _TelaHomeState();
@@ -45,13 +53,10 @@ class _TelaHomeState extends State<TelaHome> {
 
   // =======================================================================
   // ÁREA DE INTEGRAÇÃO COM LOGIN / AUTENTICAÇÃO:
-  // Quando implementar a tela e o fluxo de login, utilize ou descomente a
-  // variável abaixo para exibir dinamicamente o nome da pessoa logada.
-  //
-  // Exemplo futuro:
-  // final String? nomeUsuarioLogado = AuthService.currentUser?.nome;
+  // Exibe dinamicamente o nome da pessoa logada vindo da API ou parâmetro.
   // =======================================================================
-  final String? _nomeUsuarioLogado = null; // Em comentário/preparado para login
+  String? get _nomeUsuarioLogado =>
+      widget.nomeUsuario ?? widget.api?.usuarioLogado?['nome'] as String?;
 
   // Lista de atividades recentes no sistema de patrimônio do AtlasLab
   final List<AtividadeItem> _todasAtividades = const [
@@ -344,12 +349,70 @@ class _TelaHomeState extends State<TelaHome> {
                       ),
                       tooltip: 'Perfil',
                       onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Login em desenvolvimento. Em breve perfil do usuário!',
+                        final usuario = widget.api?.usuarioLogado;
+                        final nome = _nomeUsuarioLogado;
+                        final email = usuario?['email'] as String?;
+                        final cargo = usuario?['cargo'] as String?;
+
+                        showDialog<void>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                            duration: Duration(seconds: 2),
+                            title: const Row(
+                              children: [
+                                Icon(Icons.account_circle_rounded,
+                                    color: AppColors.mainColor, size: 28),
+                                SizedBox(width: 8),
+                                Text('Perfil do Usuário'),
+                              ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  nome != null && nome.isNotEmpty
+                                      ? nome
+                                      : 'Usuário AtlasLab',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                if (email != null) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'E-mail: $email',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                                if (cargo != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Cargo: $cargo',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text(
+                                  'Fechar',
+                                  style: TextStyle(
+                                    color: AppColors.mainColor,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       },
