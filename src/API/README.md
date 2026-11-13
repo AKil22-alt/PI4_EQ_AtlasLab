@@ -46,30 +46,30 @@ A senha é gravada com BCrypt via `BCryptSHA256PasswordHasher`. Ela nunca é dev
 
 Base: `http://127.0.0.1:8000/api`
 
-| Método | Rota | Finalidade |
-|---|---|---|
-| GET | `/health/` | Verificação de disponibilidade; não exige token |
-| POST | `/auth/login/` | Login e emissão de token |
-| GET | `/auth/me/` | Dados do usuário autenticado |
-| POST | `/auth/logout/` | Revoga o token atual |
-| GET/POST | `/usuarios/` | Listar/criar usuários (ADM) |
-| GET/PATCH/DELETE | `/usuarios/{id_user}/` | Consultar/alterar/remover usuário (ADM) |
-| GET/POST | `/grupos/` | Listar/criar grupos de ativos |
-| GET/POST | `/salas/` | Listar/criar salas/laboratórios |
-| GET/POST | `/ativos/` | Consultar/cadastrar ativos |
-| GET/PATCH | `/ativos/{id_ativos}/` | Consultar/alterar ativo; não há exclusão física pela API |
-| GET | `/ativos/por-qr/?codigo=ATLASLAB-...` | Localizar ativo pelo QR Code |
-| GET | `/ativos/{id_ativos}/qr-code-imagem/` | Receber a imagem PNG do QR Code |
-| POST | `/ativos/{id_ativos}/movimentar/` | Registrar movimentação e atualizar a localização do ativo |
-| POST | `/ativos/{id_ativos}/inativar/` | Inativar ativo sem apagar seu histórico |
-| POST | `/ativos/{id_ativos}/ativar/` | Reativar um ativo inativado |
-| GET | `/ativos/{id_ativos}/historico/` | Consultar movimentações e ordens ligadas ao ativo |
-| GET/POST | `/ordens-servico/` | Consultar/abrir ordem de serviço |
-| GET/PATCH/DELETE | `/ordens-servico/{id_ordem}/` | Consultar/atualizar/remover ordem |
-| GET/POST | `/manutencoes/` | Consultar/cadastrar manutenções |
-| GET/POST | `/movimentacoes/` | Consultar/criar movimentações; histórico é append-only (sem edição/exclusão) |
-| GET/POST | `/denuncias/` | Listar/criar denúncias; usuários comuns veem apenas as próprias |
-| GET | `/logs/` | Auditoria de ações (ADM) |
+| Método           | Rota                                  | Finalidade                                                                   |
+| ---------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
+| GET              | `/health/`                            | Verificação de disponibilidade; não exige token                              |
+| POST             | `/auth/login/`                        | Login e emissão de token                                                     |
+| GET              | `/auth/me/`                           | Dados do usuário autenticado                                                 |
+| POST             | `/auth/logout/`                       | Revoga o token atual                                                         |
+| GET/POST         | `/usuarios/`                          | Listar/criar usuários (ADM)                                                  |
+| GET/PATCH/DELETE | `/usuarios/{id_user}/`                | Consultar/alterar/remover usuário (ADM)                                      |
+| GET/POST         | `/grupos/`                            | Listar/criar grupos de ativos                                                |
+| GET/POST         | `/salas/`                             | Listar/criar salas/laboratórios                                              |
+| GET/POST         | `/ativos/`                            | Consultar/cadastrar ativos                                                   |
+| GET/PATCH        | `/ativos/{id_ativos}/`                | Consultar/alterar ativo; não há exclusão física pela API                     |
+| GET              | `/ativos/por-qr/?codigo=ATLASLAB-...` | Localizar ativo pelo QR Code                                                 |
+| GET              | `/ativos/{id_ativos}/qr-code-imagem/` | Receber a imagem PNG do QR Code                                              |
+| POST             | `/ativos/{id_ativos}/movimentar/`     | Registrar movimentação e atualizar a localização do ativo                    |
+| POST             | `/ativos/{id_ativos}/inativar/`       | Inativar ativo sem apagar seu histórico                                      |
+| POST             | `/ativos/{id_ativos}/ativar/`         | Reativar um ativo inativado                                                  |
+| GET              | `/ativos/{id_ativos}/historico/`      | Consultar movimentações e ordens ligadas ao ativo                            |
+| GET/POST         | `/ordens-servico/`                    | Consultar/abrir ordem de serviço                                             |
+| GET/PATCH/DELETE | `/ordens-servico/{id_ordem}/`         | Consultar/atualizar/remover ordem                                            |
+| GET/POST         | `/manutencoes/`                       | Consultar/cadastrar manutenções                                              |
+| GET/POST         | `/movimentacoes/`                     | Consultar/criar movimentações; histórico é append-only (sem edição/exclusão) |
+| GET/POST         | `/denuncias/`                         | Listar/criar denúncias; usuários comuns veem apenas as próprias              |
+| GET              | `/logs/`                              | Auditoria de ações (ADM)                                                     |
 
 Listas são paginadas com até 50 registros por página. Parâmetros úteis: `/ativos/?search=notebook`, `/ativos/?status=ativo`, `/ativos/?grupo=1`, `/ativos/?sala=1`, `/ordens-servico/?status=ABERTA` e `/movimentacoes/?ativo=1`.
 
@@ -114,6 +114,8 @@ O `qr_code` é gerado automaticamente e é único. Não envie senha, token ou da
 ```
 
 `local_origem` e `local_atual` recebem IDs de `/salas/`; a resposta inclui `local_origem_detalhes` e `local_atual_detalhes` com os dados das salas relacionadas.
+
+O QR Code contém somente o identificador único `ATLASLAB-...`. A imagem PNG é gerada sob demanda, sem arquivo separado no banco, e pode ser obtida por ADM ou TEC em `/api/ativos/{id}/qr-code-imagem/`. Para consultar os dados atuais do ativo após ler o identificador, use `/api/ativos/por-qr/?codigo=ATLASLAB-...` com um token de autenticação; essa consulta requer conexão com a API.
 
 ### Abrir ordem de serviço com vínculos do diagrama
 

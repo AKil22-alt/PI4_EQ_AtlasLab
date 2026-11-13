@@ -57,6 +57,38 @@ export async function apiRequest(path, options = {}) {
     }
 }
 
+export async function apiBlobRequest(path) {
+    apiLoadingCount.value += 1
+
+    try {
+        const token = localStorage.getItem('atlaslab-token')
+        const headers = new Headers()
+
+        if (token) {
+            headers.set('Authorization', `Token ${token}`)
+        }
+
+        const response = await fetch(`${API_BASE_URL}${path}`, { headers })
+
+        if (!response.ok) {
+            let message = 'Não foi possível carregar a imagem.'
+            try {
+                const data = await response.json()
+                message = data?.detail || data?.mensagem || message
+            } catch {
+                // Mantém a mensagem padrão quando a API não retorna JSON.
+            }
+            const error = new Error(message)
+            error.status = response.status
+            throw error
+        }
+
+        return await response.blob()
+    } finally {
+        apiLoadingCount.value = Math.max(0, apiLoadingCount.value - 1)
+    }
+}
+
 export function dashboardSummaryRequest() {
     return apiRequest('/dashboard/')
 }
@@ -174,6 +206,10 @@ export function listAssetsRequest() {
 
 export function assetHistoryRequest(assetId) {
     return apiRequest(`/ativos/${assetId}/historico/`)
+}
+
+export function assetQrCodeImageRequest(assetId) {
+    return apiBlobRequest(`/ativos/${assetId}/qr-code-imagem/`)
 }
 
 export function listServiceOrdersRequest() {

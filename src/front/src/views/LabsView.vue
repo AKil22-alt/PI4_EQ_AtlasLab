@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   createLaboratoryRequest,
@@ -13,6 +13,7 @@ import {
   createAssetGroupRequest,
   updateAssetGroupRequest,
   createAssetRequest,
+  assetQrCodeImageRequest,
   updateAssetRequest,
   moveAssetRequest,
   listAllPagesRequest,
@@ -23,7 +24,7 @@ import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Download, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -41,6 +42,10 @@ const clearMovementHistoryError = ref('')
 const selectedAssetMovements = ref([])
 const isLoadingAssetMovements = ref(false)
 const assetMovementsError = ref('')
+const assetQrImageUrl = ref('')
+const isLoadingAssetQr = ref(false)
+const assetQrError = ref('')
+let assetQrRequestId = 0
 
 const labs = reactive([])
 const groups = reactive([])
@@ -121,6 +126,47 @@ async function loadSelectedAssetHistory(assetId) {
     isLoadingAssetMovements.value = false
   }
 }
+
+function clearAssetQrImage() {
+  assetQrRequestId += 1
+  if (assetQrImageUrl.value) URL.revokeObjectURL(assetQrImageUrl.value)
+  assetQrImageUrl.value = ''
+  isLoadingAssetQr.value = false
+  assetQrError.value = ''
+}
+
+async function loadAssetQrImage(assetId) {
+  if (!canManageAssets.value) return
+
+  const requestId = ++assetQrRequestId
+  if (assetQrImageUrl.value) URL.revokeObjectURL(assetQrImageUrl.value)
+  assetQrImageUrl.value = ''
+  isLoadingAssetQr.value = true
+  assetQrError.value = ''
+
+  try {
+    const image = await assetQrCodeImageRequest(assetId)
+    if (requestId !== assetQrRequestId || selectedAsset.value?.id !== assetId) return
+    assetQrImageUrl.value = URL.createObjectURL(image)
+  } catch (error) {
+    if (requestId === assetQrRequestId) {
+      assetQrError.value = error.message || 'Não foi possível carregar o QR Code.'
+    }
+  } finally {
+    if (requestId === assetQrRequestId) isLoadingAssetQr.value = false
+  }
+}
+
+function downloadAssetQrImage() {
+  if (!assetQrImageUrl.value || !selectedAsset.value) return
+
+  const link = document.createElement('a')
+  link.href = assetQrImageUrl.value
+  link.download = `ativo-${selectedAsset.value.id}.png`
+  link.click()
+}
+
+onUnmounted(clearAssetQrImage)
 
 function mapLaboratory(laboratory) {
   return {
@@ -241,6 +287,9 @@ const showGroupModal = ref(false)
 const showDetailsModal = ref(false)
 const showMovementModal = ref(false)
 const selectedAsset = ref(null)
+watch(showDetailsModal, (isOpen) => {
+  if (!isOpen) clearAssetQrImage()
+})
 const selectedLab = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
@@ -550,11 +599,16 @@ async function createAsset() {
       status: assetForm.status === 'Ativo'
     }
     const asset = await createAssetRequest(payload)
-
-    rows.unshift(mapAsset(asset))
+    const createdAsset = mapAsset(asset)
+    rows.unshift(createdAsset)
 
     showAssetModal.value = false
     resetAssetForm()
+    selectedAsset.value = createdAsset
+    selectedAssetMovements.value = []
+    showDetailsModal.value = true
+    void loadSelectedAssetHistory(createdAsset.id)
+    void loadAssetQrImage(createdAsset.id)
   } catch (error) {
     console.error('Erro ao criar ativo:', error)
   }
@@ -750,6 +804,7 @@ function handleRowAction({ action, row }) {
     selectedAssetMovements.value = []
     showDetailsModal.value = true
     void loadSelectedAssetHistory(row.id)
+    void loadAssetQrImage(row.id)
   } else if (action === 'edit') {
     openAssetForm(row)
   } else if (action === 'delete') {
@@ -1197,6 +1252,31 @@ function handleRowAction({ action, row }) {
             </div>
           </dl>
 
+          <section v-if="canManageAssets" class="space-y-3 border-t border-gray-200 pt-4">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-base font-semibold text-text-primary">Imagem do QR Code</h3>
+              <Button variant="outline" size="sm" :disabled="isLoadingAssetQr || !assetQrImageUrl"
+                @click="downloadAssetQrImage">
+                <Download :size="16" />
+                Baixar PNG
+              </Button>
+            </div>
+            <div class="flex min-h-48 items-center justify-center rounded-lg border border-gray-200 bg-white p-3">
+              <p v-if="isLoadingAssetQr" class="text-sm text-text-secondary" role="status">
+                Carregando QR Code...
+              </p>
+              <div v-else-if="assetQrError" class="text-center" role="alert">
+                <p class="text-sm text-red-primary">{{ assetQrError }}</p>
+                <button type="button" class="mt-2 text-sm font-medium text-red-primary underline"
+                  @click="loadAssetQrImage(selectedAsset.id)">
+                  Tentar novamente
+                </button>
+              </div>
+              <img v-else-if="assetQrImageUrl" :src="assetQrImageUrl" :alt="`QR Code do ativo ${selectedAsset.name}`"
+                class="h-48 w-48 object-contain" />
+            </div>
+          </section>
+
           <section class="border-t border-gray-200 pt-4" aria-label="Histórico de movimentações">
             <h3 class="text-base font-semibold text-text-primary">Histórico de movimentações</h3>
             <p v-if="isLoadingAssetMovements" class="mt-3 text-sm text-text-secondary" role="status">
@@ -1444,12 +1524,12 @@ function handleRowAction({ action, row }) {
         : confirmationAction === 'clear-movements'
           ? 'Limpar histórico de movimentações'
           : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
-          ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-          : confirmationAction === 'delete-asset'
-            ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
-            : confirmationAction === 'clear-movements'
-              ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
-              : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+            ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+            : confirmationAction === 'delete-asset'
+              ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
+              : confirmationAction === 'clear-movements'
+                ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
+                : 'Tem certeza que deseja salvar as alterações deste ativo?'"
       :confirm-text="confirmationAction === 'delete-asset' || confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
       @confirm="confirmAction" />
   </main>

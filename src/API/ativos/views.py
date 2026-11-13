@@ -451,7 +451,11 @@ class AtivoViewSet(AuditedModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_permissions(self):
-        self.action_roles = {"movimentar": TODOS}
+        self.action_roles = {
+            "movimentar": TODOS,
+            "qr_code_imagem": TECNICO,
+            "qr_code": TECNICO,
+        }
         return super().get_permissions()
 
     @action(detail=False, methods=["get"], url_path="por-qr")

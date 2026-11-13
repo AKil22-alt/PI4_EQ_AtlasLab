@@ -339,6 +339,31 @@ class ApiViewsTests(TestCase):
             entidade_id=str(created.data["id_ativos"]),
         ).exists())
 
+    def test_asset_qr_image_is_png_and_only_available_to_managers(self):
+        url = f"/api/ativos/{self.ativo.pk}/qr-code-imagem/"
+
+        response = self.authenticate(self.admin).get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        denied = self.authenticate(self.colaborador).get(url)
+        self.assertEqual(denied.status_code, 403)
+
+    def test_asset_can_be_looked_up_by_qr_code(self):
+        client = self.authenticate(self.colaborador)
+
+        found = client.get("/api/ativos/por-qr/", {"codigo": self.ativo.qr_code})
+        missing_code = client.get("/api/ativos/por-qr/")
+        unknown_code = client.get("/api/ativos/por-qr/", {"codigo": "ATLASLAB-INVALIDO"})
+
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.data["id_ativos"], self.ativo.pk)
+        self.assertEqual(found.data["qr_code"], self.ativo.qr_code)
+        self.assertEqual(missing_code.status_code, 400)
+        self.assertEqual(unknown_code.status_code, 404)
+
     def test_asset_with_service_order_cannot_be_deleted(self):
         order = OrdemServico.objects.create(
             titulo="Manutenção de teste",
