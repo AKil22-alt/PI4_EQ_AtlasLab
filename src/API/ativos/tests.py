@@ -164,13 +164,21 @@ class ApiViewsTests(TestCase):
             "query": {"tab": "assets", "assetId": str(created.data["id_ativos"])},
         })
 
-    def test_notifications_expire_seven_days_after_read_and_are_admin_only(self):
+    def test_notifications_expire_one_day_after_read_and_are_admin_only(self):
+        now = timezone.now()
         old_read = Notificacao.objects.create(
             usuario=self.admin,
             mensagem="Notificação antiga",
             acao="CRIAR",
             entidade="Ativo",
-            lida_em=timezone.now() - timedelta(days=8),
+            lida_em=now - timedelta(hours=25),
+        )
+        recent_read = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação lida recentemente",
+            acao="CRIAR",
+            entidade="Ativo",
+            lida_em=now - timedelta(hours=23),
         )
         unread = Notificacao.objects.create(
             usuario=self.admin,
@@ -183,7 +191,10 @@ class ApiViewsTests(TestCase):
         denied = self.authenticate(self.colaborador).get("/api/auth/notificacoes/")
 
         self.assertEqual(listed.status_code, 200)
-        self.assertEqual([item["id"] for item in listed.data], [unread.pk])
+        self.assertCountEqual(
+            [item["id"] for item in listed.data],
+            [recent_read.pk, unread.pk],
+        )
         self.assertFalse(Notificacao.objects.filter(pk=old_read.pk).exists())
         self.assertEqual(denied.status_code, 403)
 

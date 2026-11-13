@@ -154,9 +154,10 @@ const orderForm = reactive({
 
 const orderTabs = [
 	{ key: 'all', label: 'Todas', status: '' },
-	{ key: 'open', label: 'Abertas', status: 'ABERTA' },
-	{ key: 'inProgress', label: 'Em andamento', status: 'EM_ANDAMENTO' },
-	{ key: 'completed', label: 'Concluídas', status: 'CONCLUIDA' }
+	{ key: 'open', label: 'Abertas', status: 'ABERTA', indicator: 'bg-amber-500' },
+	{ key: 'inProgress', label: 'Em andamento', status: 'EM_ANDAMENTO', indicator: 'bg-blue-500' },
+	{ key: 'completed', label: 'Concluídas', status: 'CONCLUIDA', indicator: 'bg-emerald-500' },
+	{ key: 'cancelled', label: 'Canceladas', status: 'CANCELADA', indicator: 'bg-red-500' }
 ]
 
 const isEditing = computed(() => editingOrderId.value !== null)
@@ -169,19 +170,28 @@ const formAssetOptions = computed(() => assets.filter((asset) =>
 	asset.status !== false && asset.grupo_detalhes?.setor === orderForm.sector
 ))
 
-const filteredRows = computed(() => {
+const baseFilteredRows = computed(() => {
 	const query = searchText.value.trim().toLowerCase()
-	const selectedTab = orderTabs.find((tab) => tab.key === activeTab.value)
 
 	return rows.filter((row) => {
 		const matchesSearch = !query || Object.values(row).some((value) => String(value).toLowerCase().includes(query))
-		return (!selectedTab?.status || row.statusValue === selectedTab.status)
-			&& matchesSearch
+		return matchesSearch
 			&& (!filters.number || row.number === filters.number)
 			&& (!filters.sector || row.sector === filters.sector)
 			&& (!filters.lab || row.lab === filters.lab)
 	})
 })
+const filteredRows = computed(() => {
+	const selectedTab = orderTabs.find((tab) => tab.key === activeTab.value)
+	return baseFilteredRows.value.filter((row) => !selectedTab?.status || row.statusValue === selectedTab.status)
+})
+const orderTabCounts = computed(() => ({
+	all: baseFilteredRows.value.length,
+	open: baseFilteredRows.value.filter((row) => row.statusValue === 'ABERTA').length,
+	inProgress: baseFilteredRows.value.filter((row) => row.statusValue === 'EM_ANDAMENTO').length,
+	completed: baseFilteredRows.value.filter((row) => row.statusValue === 'CONCLUIDA').length,
+	cancelled: baseFilteredRows.value.filter((row) => row.statusValue === 'CANCELADA').length
+}))
 const paginatedOrderRows = computed(() => {
 	const start = (ordersCurrentPage.value - 1) * ordersPageSize.value
 	return filteredRows.value.slice(start, start + ordersPageSize.value)
@@ -433,19 +443,6 @@ function handleRowAction({ action, row }) {
 			</div>
 
 			<div v-if="!showCreateModal" class="space-y-6">
-				<nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8"
-					aria-label="Filtrar ordens por status">
-					<button v-for="tab in orderTabs" :key="tab.key" type="button" :aria-pressed="activeTab === tab.key"
-						:class="[
-							'border-b-2 px-2 pb-2 text-sm transition-colors',
-							activeTab === tab.key
-								? 'border-red-primary font-semibold text-red-primary'
-								: 'border-transparent text-text-secondary hover:text-text-primary'
-						]" @click="activeTab = tab.key">
-						{{ tab.label }}
-					</button>
-				</nav>
-
 				<div class="flex flex-wrap items-end gap-3">
 					<div class="w-60">
 						<Searchbar v-model="searchText" />
@@ -488,6 +485,24 @@ function handleRowAction({ action, row }) {
 						Limpar filtros
 					</Button>
 				</div>
+
+				<nav class="flex w-fit max-w-full flex-wrap gap-2 rounded-xl border border-gray-200 bg-white p-2"
+					aria-label="Filtrar ordens por status">
+					<button v-for="tab in orderTabs" :key="tab.key" type="button" :aria-pressed="activeTab === tab.key"
+						:class="[
+							'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+							activeTab === tab.key
+								? 'border-red-primary bg-bg-red text-red-primary'
+								: 'border-transparent text-text-secondary hover:bg-bg'
+						]" @click="activeTab = tab.key">
+						<span v-if="tab.indicator" :class="['h-2 w-2 rounded-full', tab.indicator]" aria-hidden="true"></span>
+						{{ tab.label }}
+						<span :class="[
+							'rounded-full px-2 py-0.5 text-xs',
+							activeTab === tab.key ? 'bg-red-primary text-white' : 'bg-bg text-text-secondary'
+						]">{{ orderTabCounts[tab.key] }}</span>
+					</button>
+				</nav>
 
 				<p v-if="isLoadingOrders" class="py-8 text-center text-sm text-text-secondary" role="status">
 					Carregando ordens de serviço...

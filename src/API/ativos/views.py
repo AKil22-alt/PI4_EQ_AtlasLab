@@ -260,7 +260,7 @@ class NotificacoesView(APIView):
     roles_read = ADMIN
 
     def get(self, request):
-        prazo_expiracao = timezone.now() - timedelta(days=7)
+        prazo_expiracao = timezone.now() - timedelta(days=1)
         Notificacao.objects.filter(
             usuario=request.user,
             lida_em__lt=prazo_expiracao,
