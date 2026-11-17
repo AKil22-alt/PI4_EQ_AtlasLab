@@ -1,5 +1,6 @@
 <script setup>
 // Ícones usados nos links de navegação da aplicação.
+import { computed } from 'vue'
 import {
     LayoutDashboard,
     FlaskConical,
@@ -12,6 +13,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 const router = useRouter()
 const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.currentUser?.cargo === 'ADM')
 
 async function logout() {
     await authStore.logout()
@@ -66,7 +68,7 @@ defineProps({
                 <span v-if="open">Laboratórios e ativos</span>
             </RouterLink>
 
-            <RouterLink to="/users" active-class="bg-white text-red-primary"
+            <RouterLink v-if="isAdmin" to="/users" active-class="bg-white text-red-primary"
                 :class="['flex items-center rounded-full py-3 font-medium transition-colors hover:bg-white/15 hover:text-white', open ? 'gap-4 px-4' : 'justify-center px-2']"
                 title="Usuários">
                 <Users :size="22" />

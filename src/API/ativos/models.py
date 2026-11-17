@@ -124,10 +124,15 @@ class OrdemServico(models.Model):
 
     id_ordem = models.AutoField(primary_key=True)
     descricao = models.TextField()
+    descricao_conclusao = models.TextField(blank=True, null=True)
     titulo = models.CharField(max_length=100)
     data_hora = models.DateTimeField(default=timezone.now)
     data_termino = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ABERTA)
+    responsavel = models.ForeignKey(
+        Usuario, on_delete=models.SET_NULL, blank=True, null=True,
+        related_name="ordens_responsavel",
+    )
     usuarios = models.ManyToManyField(Usuario, through="OSUser", related_name="ordens_servico")
     salas = models.ManyToManyField(SalaLab, through="OSSalaLab", related_name="ordens_servico")
     ativos = models.ManyToManyField(Ativo, through="OSAtivo", related_name="ordens_servico")
@@ -254,3 +259,23 @@ class LogAcao(models.Model):
 
     def __str__(self):
         return f"{self.acao} - {self.entidade}#{self.entidade_id}"
+
+
+class Notificacao(models.Model):
+    usuario = models.ForeignKey(
+        Usuario, on_delete=models.CASCADE, related_name="notificacoes"
+    )
+    mensagem = models.CharField(max_length=255)
+    acao = models.CharField(max_length=30)
+    entidade = models.CharField(max_length=80)
+    entidade_id = models.CharField(max_length=80, blank=True)
+    destino = models.JSONField(default=dict, blank=True)
+    criada_em = models.DateTimeField(default=timezone.now, editable=False, db_index=True)
+    lida_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-criada_em"]
+        indexes = [models.Index(fields=["usuario", "-criada_em"], name="idx_notif_user_created")]
+
+    def __str__(self):
+        return f"Notificação para {self.usuario_id}: {self.mensagem}"

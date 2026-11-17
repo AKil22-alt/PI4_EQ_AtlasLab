@@ -2,7 +2,7 @@ from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
 
 from .models import (
-    Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA,
+    Ativo, DenunciaF, GrupoA, LogAcao, ManutencaoA, MovimentacoesA, Notificacao,
     OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
@@ -95,6 +95,21 @@ class SolicitacaoCadastroSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class NotificacaoSerializer(serializers.ModelSerializer):
+    lida = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notificacao
+        fields = [
+            "id", "mensagem", "criada_em", "lida", "entidade", "entidade_id",
+            "acao", "destino",
+        ]
+        read_only_fields = fields
+
+    def get_lida(self, notificacao):
+        return notificacao.lida_em is not None
+
+
 class GrupoASerializer(serializers.ModelSerializer):
     class Meta:
         model = GrupoA
@@ -155,6 +170,7 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
     manutencao_ids = serializers.PrimaryKeyRelatedField(
         source="manutencoes", queryset=ManutencaoA.objects.all(), many=True, required=False, write_only=True
     )
+    responsavel_detalhes = UsuarioResumoSerializer(source="responsavel", read_only=True)
     usuarios_detalhes = UsuarioResumoSerializer(source="usuarios", many=True, read_only=True)
     salas_detalhes = SalaLabSerializer(source="salas", many=True, read_only=True)
     ativos_detalhes = AtivoSerializer(source="ativos", many=True, read_only=True)
@@ -163,11 +179,34 @@ class OrdemServicoSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrdemServico
         fields = [
-            "id_ordem", "titulo", "descricao", "data_hora", "data_termino", "status",
+            "id_ordem", "titulo", "descricao", "descricao_conclusao", "data_hora",
+            "data_termino", "status",
+            "responsavel", "responsavel_detalhes",
             "usuario_ids", "sala_ids", "ativo_ids", "manutencao_ids",
             "usuarios_detalhes", "salas_detalhes", "ativos_detalhes", "manutencoes_detalhes",
         ]
         read_only_fields = ["id_ordem"]
+
+    def validate(self, attrs):
+        status_value = attrs.get(
+            "status",
+            self.instance.status if self.instance else OrdemServico.Status.ABERTA,
+        )
+        descricao_conclusao = attrs.get(
+            "descricao_conclusao",
+            self.instance.descricao_conclusao if self.instance else "",
+        )
+
+        if status_value == OrdemServico.Status.CONCLUIDA:
+            if not descricao_conclusao or not descricao_conclusao.strip():
+                raise serializers.ValidationError({
+                    "descricao_conclusao": "Descreva o serviço realizado antes de concluir a ordem."
+                })
+            attrs["descricao_conclusao"] = descricao_conclusao.strip()
+        elif "descricao_conclusao" in attrs and descricao_conclusao:
+            attrs["descricao_conclusao"] = descricao_conclusao.strip()
+
+        return attrs
 
 
 class MovimentacoesASerializer(serializers.ModelSerializer):

@@ -29,6 +29,7 @@ from .models import (
     LogAcao,
     ManutencaoA,
     MovimentacoesA,
+    Notificacao,
     OSAtivo,
     OSSalaLab,
     OrdemServico,
@@ -45,6 +46,7 @@ from .serializers import (
     LogAcaoSerializer,
     LoginSerializer,
     ManutencaoASerializer,
+    NotificacaoSerializer,
     MovimentacoesASerializer,
     OrdemServicoSerializer,
     ResponsavelSalaSerializer,
@@ -178,7 +180,8 @@ class CadastroView(APIView):
     def post(self, request):
         serializer = CadastroSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        solicitacao = serializer.save()
+        registrar_acao(request, "CRIAR", "SolicitacaoCadastro", solicitacao.pk)
         return Response(
             {"detail": "Cadastro enviado. Aguarde a aprovação do administrador."},
             status=status.HTTP_201_CREATED,
@@ -190,7 +193,7 @@ class SolicitacoesCadastroView(APIView):
     roles_read = ADMIN
 
     def get(self, request):
-        solicitacoes = SolicitacaoCadastro.objects.all()
+        solicitacoes = SolicitacaoCadastro.objects.all().order_by("-criada_em", "-id")
         serializer = SolicitacaoCadastroSerializer(solicitacoes, many=True)
         return Response(serializer.data)
 
@@ -216,13 +219,20 @@ class SolicitacaoCadastroActionView(APIView):
                 cargo=Cargo.COLABORADOR,
                 senha=solicitacao.senha_hash,
             )
-            registrar_acao(request, "APROVAR", "SolicitacaoCadastro", solicitacao.pk)
+            registrar_acao(
+                request,
+                "APROVAR",
+                "SolicitacaoCadastro",
+                solicitacao.pk,
+                detalhes={"usuario_id": usuario.pk},
+            )
             solicitacao.delete()
 
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED)
 
     def delete(self, request, solicitacao_id):
         solicitacao = get_object_or_404(SolicitacaoCadastro, pk=solicitacao_id)
+        registrar_acao(request, "EXCLUIR", "SolicitacaoCadastro", solicitacao.pk)
         solicitacao.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -243,6 +253,34 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UsuarioSerializer(request.user).data)
+
+
+class NotificacoesView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_read = ADMIN
+
+    def get(self, request):
+        prazo_expiracao = timezone.now() - timedelta(days=1)
+        Notificacao.objects.filter(
+            usuario=request.user,
+            lida_em__lt=prazo_expiracao,
+        ).delete()
+        notificacoes = Notificacao.objects.filter(usuario=request.user)
+        return Response(NotificacaoSerializer(notificacoes, many=True).data)
+
+
+class MarcarNotificacaoLidaView(APIView):
+    permission_classes = [IsAuthenticated, CargoPermission]
+    roles_create = ADMIN
+
+    def post(self, request, notificacao_id):
+        notificacao = get_object_or_404(
+            Notificacao, pk=notificacao_id, usuario=request.user
+        )
+        if notificacao.lida_em is None:
+            notificacao.lida_em = timezone.now()
+            notificacao.save(update_fields=["lida_em"])
+        return Response(NotificacaoSerializer(notificacao).data)
 
 
 class AuditedModelViewSet(viewsets.ModelViewSet):
@@ -281,7 +319,7 @@ class AuditedModelViewSet(viewsets.ModelViewSet):
 
 
 class UsuarioViewSet(AuditedModelViewSet):
-    queryset = Usuario.objects.all().order_by("id_user")
+    queryset = Usuario.objects.all().order_by("-id_user")
     serializer_class = UsuarioSerializer
     lookup_field = "id_user"
     roles_read = ADMIN
@@ -312,7 +350,7 @@ class GrupoAViewSet(AuditedModelViewSet):
 
 
 class SalaLabViewSet(AuditedModelViewSet):
-    queryset = SalaLab.objects.select_related("responsavel").all().order_by("id_sala")
+    queryset = SalaLab.objects.select_related("responsavel").all().order_by("-id_sala")
     serializer_class = SalaLabSerializer
     lookup_field = "id_sala"
     roles_create = TECNICO
@@ -374,7 +412,7 @@ class AtivoViewSet(AuditedModelViewSet):
     def get_queryset(self):
         queryset = Ativo.objects.select_related(
             "grupo", "local_origem", "local_atual"
-        ).all().order_by("id_ativos")
+        ).all().order_by("-id_ativos")
         status_param = self.request.query_params.get("status")
         if status_param is not None:
             normalized_status = status_param.strip().lower()
@@ -451,7 +489,11 @@ class AtivoViewSet(AuditedModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_permissions(self):
-        self.action_roles = {"movimentar": TODOS}
+        self.action_roles = {
+            "movimentar": TODOS,
+            "qr_code_imagem": TECNICO,
+            "qr_code": TECNICO,
+        }
         return super().get_permissions()
 
     @action(detail=False, methods=["get"], url_path="por-qr")
@@ -566,9 +608,9 @@ class AtivoViewSet(AuditedModelViewSet):
 
 
 class OrdemServicoViewSet(AuditedModelViewSet):
-    queryset = OrdemServico.objects.all().prefetch_related(
+    queryset = OrdemServico.objects.select_related("responsavel").prefetch_related(
         "usuarios", "salas", "ativos", "manutencoes"
-    ).order_by("id_ordem")
+    ).order_by("-id_ordem")
     serializer_class = OrdemServicoSerializer
     lookup_field = "id_ordem"
     entity_name = "OrdemServico"

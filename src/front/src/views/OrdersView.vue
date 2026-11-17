@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Table from '../components/Table.vue'
 import Button from '../components/Button.vue'
 import Searchbar from '../components/Searchbar.vue'
 import Modal from '../components/Modal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import { ArrowLeft, Check, Pencil, Play, Plus, X } from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
 import {
@@ -14,18 +15,20 @@ import {
 	listAssetGroupsRequest,
 	listAssetsRequest,
 	listLaboratoriesRequest,
-	listServiceOrdersRequest,
+	listLaboratoryResponsiblesRequest,
+	listAllPagesRequest,
 	updateServiceOrderRequest
 } from '../services/api'
 
 const columns = [
-  { key: 'number', label: 'Nº da OS', width: '10%' },
-  { key: 'openingDate', label: 'Data de Abertura', width: '15%' },
-  { key: 'conclusionDate', label: 'Data de Conclusão', width: '15%' },
-  { key: 'sector', label: 'Setor', width: '14%' },
-  { key: 'lab', label: 'Laboratório', width: '12%' },
-  { key: 'status', label: 'Status', width: '10%', type: 'status' },
-	{ key: 'description', label: 'Descrição', width: '12%' },
+	{ key: 'number', label: 'Nº da OS', width: '10%' },
+	{ key: 'openingDate', label: 'Data de Abertura', width: '15%' },
+	{ key: 'conclusionDate', label: 'Data de Conclusão', width: '15%' },
+	{ key: 'sector', label: 'Setor', width: '14%' },
+	{ key: 'lab', label: 'Laboratório', width: '12%' },
+	{ key: 'responsible', label: 'Responsável', width: '14%' },
+	{ key: 'status', label: 'Status', width: '10%', type: 'status' },
+	{ key: 'description', label: 'Descrição', width: '10%' },
 	{ key: 'actions', label: 'Ações', width: '112px', type: 'actions' }
 ]
 
@@ -33,6 +36,7 @@ const rows = reactive([])
 const laboratories = reactive([])
 const assetGroups = reactive([])
 const assets = reactive([])
+const responsibles = reactive([])
 const isLoadingOrders = ref(false)
 const isLoadingOptions = ref(false)
 const isSaving = ref(false)
@@ -53,6 +57,7 @@ const canManageOrders = computed(() => ['ADM', 'TEC'].includes(authStore.current
 function mapServiceOrder(order) {
 	const assets = order.ativos_detalhes || []
 	const rooms = order.salas_detalhes || []
+	const responsible = order.responsavel_detalhes
 	const sectors = assets
 		.map((asset) => asset.grupo_detalhes?.setor)
 		.filter(Boolean)
@@ -69,8 +74,11 @@ function mapServiceOrder(order) {
 		conclusionDate: order.data_termino ? formatDate(order.data_termino) : '',
 		sector: [...new Set(sectors)].join(', ') || '—',
 		lab: rooms.map((room) => room.localizacao || room.nome).join(', ') || '—',
+		responsibleId: order.responsavel || '',
+		responsible: responsible?.nome || 'Não informado',
 		status: statusLabels[order.status] || order.status,
-		description: order.descricao
+		description: order.descricao,
+		completionDescription: order.descricao_conclusao || ''
 	}
 }
 
@@ -79,9 +87,9 @@ async function loadOrders() {
 	ordersError.value = ''
 
 	try {
-		const response = await listServiceOrdersRequest()
-		const orders = Array.isArray(response) ? response : response.results || []
-		rows.splice(0, rows.length, ...orders.map(mapServiceOrder))
+		const orders = await listAllPagesRequest('/ordens-servico/')
+		const newestFirst = orders.map(mapServiceOrder).sort((first, second) => second.id - first.id)
+		rows.splice(0, rows.length, ...newestFirst)
 	} catch (error) {
 		ordersError.value = error.message || 'Não foi possível carregar as ordens de serviço.'
 	} finally {
@@ -98,14 +106,17 @@ async function loadFormOptions() {
 	optionsError.value = ''
 
 	try {
-		const [labResponse, groupResponse, assetResponse] = await Promise.all([
+		const requests = [
 			listLaboratoriesRequest(),
 			listAssetGroupsRequest(),
 			listAssetsRequest()
-		])
+		]
+		if (canManageOrders.value) requests.push(listLaboratoryResponsiblesRequest())
+		const [labResponse, groupResponse, assetResponse, responsibleResponse] = await Promise.all(requests)
 		laboratories.splice(0, laboratories.length, ...responseItems(labResponse))
 		assetGroups.splice(0, assetGroups.length, ...responseItems(groupResponse))
 		assets.splice(0, assets.length, ...responseItems(assetResponse))
+		if (responsibleResponse) responsibles.splice(0, responsibles.length, ...responseItems(responsibleResponse))
 	} catch (error) {
 		optionsError.value = error.message || 'Não foi possível carregar laboratórios, setores e ativos.'
 	} finally {
@@ -129,26 +140,37 @@ const editingOrderId = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
 const statusActionError = ref('')
+const completionDescription = ref('')
 const isUpdatingStatus = ref(false)
 const actionError = ref('')
 const searchText = ref('')
-const filters = reactive({ number: '', sector: '', lab: '', status: '' })
+const activeTab = ref('all')
+const filters = reactive({ number: '', sector: '', lab: '' })
+const ordersPageSize = ref(10)
+const ordersCurrentPage = ref(1)
 const orderForm = reactive({
-	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', status: 'ABERTA', description: ''
+	number: '', openingDate: '', conclusionDate: '', title: '', sector: '', lab: '', asset: '', responsible: '', status: 'ABERTA', description: ''
 })
+
+const orderTabs = [
+	{ key: 'all', label: 'Todas', status: '' },
+	{ key: 'open', label: 'Abertas', status: 'ABERTA', indicator: 'bg-amber-500' },
+	{ key: 'inProgress', label: 'Em andamento', status: 'EM_ANDAMENTO', indicator: 'bg-blue-500' },
+	{ key: 'completed', label: 'Concluídas', status: 'CONCLUIDA', indicator: 'bg-emerald-500' },
+	{ key: 'cancelled', label: 'Canceladas', status: 'CANCELADA', indicator: 'bg-red-500' }
+]
 
 const isEditing = computed(() => editingOrderId.value !== null)
 
 const numberOptions = computed(() => [...new Set(rows.map((row) => row.number))])
 const sectorOptions = computed(() => [...new Set(rows.map((row) => row.sector))])
 const labOptions = computed(() => [...new Set(rows.map((row) => row.lab))])
-const statusOptions = computed(() => [...new Set(rows.map((row) => row.status))])
 const formSectorOptions = computed(() => [...new Set(assetGroups.map((group) => group.setor).filter(Boolean))].sort())
 const formAssetOptions = computed(() => assets.filter((asset) =>
 	asset.status !== false && asset.grupo_detalhes?.setor === orderForm.sector
 ))
 
-const filteredRows = computed(() => {
+const baseFilteredRows = computed(() => {
 	const query = searchText.value.trim().toLowerCase()
 
 	return rows.filter((row) => {
@@ -157,8 +179,26 @@ const filteredRows = computed(() => {
 			&& (!filters.number || row.number === filters.number)
 			&& (!filters.sector || row.sector === filters.sector)
 			&& (!filters.lab || row.lab === filters.lab)
-			&& (!filters.status || row.status === filters.status)
 	})
+})
+const filteredRows = computed(() => {
+	const selectedTab = orderTabs.find((tab) => tab.key === activeTab.value)
+	return baseFilteredRows.value.filter((row) => !selectedTab?.status || row.statusValue === selectedTab.status)
+})
+const orderTabCounts = computed(() => ({
+	all: baseFilteredRows.value.length,
+	open: baseFilteredRows.value.filter((row) => row.statusValue === 'ABERTA').length,
+	inProgress: baseFilteredRows.value.filter((row) => row.statusValue === 'EM_ANDAMENTO').length,
+	completed: baseFilteredRows.value.filter((row) => row.statusValue === 'CONCLUIDA').length,
+	cancelled: baseFilteredRows.value.filter((row) => row.statusValue === 'CANCELADA').length
+}))
+const paginatedOrderRows = computed(() => {
+	const start = (ordersCurrentPage.value - 1) * ordersPageSize.value
+	return filteredRows.value.slice(start, start + ordersPageSize.value)
+})
+
+watch([filteredRows, ordersPageSize], () => {
+	ordersCurrentPage.value = 1
 })
 
 function clearFilters() {
@@ -166,7 +206,6 @@ function clearFilters() {
 	filters.number = ''
 	filters.sector = ''
 	filters.lab = ''
-	filters.status = ''
 }
 
 function resetOrderForm() {
@@ -177,6 +216,7 @@ function resetOrderForm() {
 	orderForm.sector = ''
 	orderForm.lab = ''
 	orderForm.asset = ''
+	orderForm.responsible = ''
 	orderForm.status = 'ABERTA'
 	orderForm.description = ''
 	formError.value = ''
@@ -204,6 +244,7 @@ function handleSectorChange() {
 
 function requestStatusAction(action) {
 	statusActionError.value = ''
+	if (action === 'finish') completionDescription.value = ''
 	requestConfirmation(action)
 }
 
@@ -232,6 +273,7 @@ function openEditForm(order) {
 	orderForm.sector = order.sectorValue || order.sector
 	orderForm.lab = order.labId ? String(order.labId) : ''
 	orderForm.asset = order.assetId ? String(order.assetId) : ''
+	orderForm.responsible = order.responsibleId ? String(order.responsibleId) : ''
 	orderForm.status = order.statusValue || 'ABERTA'
 	orderForm.description = order.description
 	showCreateModal.value = true
@@ -260,6 +302,7 @@ async function submitOrderChanges() {
 			descricao: orderForm.description.trim(),
 			data_termino: orderForm.conclusionDate || null,
 			status: orderForm.status,
+			responsavel: orderForm.responsible ? Number(orderForm.responsible) : null,
 			sala_ids: [Number(orderForm.lab)],
 			ativo_ids: [Number(orderForm.asset)]
 		})
@@ -287,6 +330,7 @@ async function submitNewOrder() {
 			data_hora: `${orderForm.openingDate}T00:00:00`,
 			data_termino: orderForm.conclusionDate || null,
 			status: orderForm.status,
+			...(orderForm.responsible ? { responsavel: Number(orderForm.responsible) } : {}),
 			sala_ids: [Number(orderForm.lab)],
 			ativo_ids: [Number(orderForm.asset)]
 		})
@@ -319,6 +363,8 @@ function requestDeleteOrder(order) {
 }
 
 async function confirmOrderAction() {
+	if (isUpdatingStatus.value) return
+
 	const action = confirmationAction.value
 
 	if (action === 'save') {
@@ -346,16 +392,25 @@ async function confirmOrderAction() {
 		cancel: 'CANCELADA'
 	}[action]
 
+	if (action === 'finish' && !completionDescription.value.trim()) {
+		statusActionError.value = 'Descreva o que foi feito antes de finalizar a ordem.'
+		return
+	}
+
 	if (nextStatus && selectedOrder.value) {
 		isUpdatingStatus.value = true
 		statusActionError.value = ''
 
 		try {
-			const updatedOrder = await updateServiceOrderRequest(selectedOrder.value.id, { status: nextStatus })
+			const updatedOrder = await updateServiceOrderRequest(selectedOrder.value.id, {
+				status: nextStatus,
+				...(action === 'finish' ? { descricao_conclusao: completionDescription.value.trim() } : {})
+			})
 			const updatedRow = mapServiceOrder(updatedOrder)
 			const rowIndex = rows.findIndex((row) => row.id === selectedOrder.value.id)
 			if (rowIndex !== -1) rows.splice(rowIndex, 1, updatedRow)
 			selectedOrder.value = updatedRow
+			if (action === 'finish') showConfirmation.value = false
 		} catch (error) {
 			statusActionError.value = error.message || 'Não foi possível atualizar o status da ordem.'
 		} finally {
@@ -388,84 +443,91 @@ function handleRowAction({ action, row }) {
 			</div>
 
 			<div v-if="!showCreateModal" class="space-y-6">
-			<div class="flex flex-wrap items-end gap-3">
-				<div class="w-60">
-					<Searchbar v-model="searchText" />
+				<div class="flex flex-wrap items-end gap-3">
+					<div class="w-60">
+						<Searchbar v-model="searchText" />
+					</div>
+
+					<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
+						Nº da OS
+						<select v-model="filters.number"
+							class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+							<option value="">Selecione</option>
+							<option v-for="number in numberOptions" :key="number" :value="number">
+								{{ number }}
+							</option>
+						</select>
+					</label>
+
+					<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
+						Setor
+						<select v-model="filters.sector"
+							class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+							<option value="">Selecione</option>
+							<option v-for="sector in sectorOptions" :key="sector" :value="sector">
+								{{ sector }}
+							</option>
+						</select>
+					</label>
+
+					<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
+						Laboratório
+						<select v-model="filters.lab"
+							class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+							<option value="">Selecione</option>
+							<option v-for="lab in labOptions" :key="lab" :value="lab">
+								{{ lab }}
+							</option>
+						</select>
+					</label>
+
+					<Button variant="outline" size="sm" @click="clearFilters">
+						Limpar filtros
+					</Button>
 				</div>
 
-				<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
-					Nº da OS
-					<select v-model="filters.number"
-						class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-						<option value="">Selecione</option>
-						<option v-for="number in numberOptions" :key="number" :value="number">
-							{{ number }}
-						</option>
-					</select>
-				</label>
+				<nav class="flex w-fit max-w-full flex-wrap gap-2 rounded-xl border border-gray-200 bg-white p-2"
+					aria-label="Filtrar ordens por status">
+					<button v-for="tab in orderTabs" :key="tab.key" type="button" :aria-pressed="activeTab === tab.key"
+						:class="[
+							'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+							activeTab === tab.key
+								? 'border-red-primary bg-bg-red text-red-primary'
+								: 'border-transparent text-text-secondary hover:bg-bg'
+						]" @click="activeTab = tab.key">
+						<span v-if="tab.indicator" :class="['h-2 w-2 rounded-full', tab.indicator]" aria-hidden="true"></span>
+						{{ tab.label }}
+						<span :class="[
+							'rounded-full px-2 py-0.5 text-xs',
+							activeTab === tab.key ? 'bg-red-primary text-white' : 'bg-bg text-text-secondary'
+						]">{{ orderTabCounts[tab.key] }}</span>
+					</button>
+				</nav>
 
-				<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
-					Setor
-					<select v-model="filters.sector"
-						class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-						<option value="">Selecione</option>
-						<option v-for="sector in sectorOptions" :key="sector" :value="sector">
-							{{ sector }}
-						</option>
-					</select>
-				</label>
-
-				<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
-					Laboratório
-					<select v-model="filters.lab"
-						class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-						<option value="">Selecione</option>
-						<option v-for="lab in labOptions" :key="lab" :value="lab">
-							{{ lab }}
-						</option>
-					</select>
-				</label>
-
-				<label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
-					Status
-					<select v-model="filters.status"
-						class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-						<option value="">Selecione</option>
-						<option v-for="status in statusOptions" :key="status" :value="status">
-							{{ status }}
-						</option>
-					</select>
-				</label>
-
-				<Button variant="outline" size="sm" @click="clearFilters">
-					Limpar filtros
-				</Button>
-			</div>
-
-			<p v-if="isLoadingOrders" class="py-8 text-center text-sm text-text-secondary" role="status">
-				Carregando ordens de serviço...
-			</p>
-			<div v-else-if="ordersError" class="space-y-3 py-8 text-center" role="alert">
-				<p class="text-sm text-red-primary">{{ ordersError }}</p>
-				<Button variant="outline" size="sm" @click="loadOrders">Tentar novamente</Button>
-			</div>
-			<p v-else-if="filteredRows.length === 0" class="py-8 text-center text-sm text-text-secondary">
-				Nenhuma ordem de serviço encontrada.
-			</p>
-			<p v-if="actionError" class="text-sm text-red-primary" role="alert">{{ actionError }}</p>
-			<Table
-				v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0"
-				:columns="columns"
-				:rows="filteredRows"
-				row-key="id"
-				:actions="canManageOrders ? ['view', 'edit', 'delete'] : ['view']"
-				@row-action="handleRowAction"
-			/>
+				<p v-if="isLoadingOrders" class="py-8 text-center text-sm text-text-secondary" role="status">
+					Carregando ordens de serviço...
+				</p>
+				<div v-else-if="ordersError" class="space-y-3 py-8 text-center" role="alert">
+					<p class="text-sm text-red-primary">{{ ordersError }}</p>
+					<Button variant="outline" size="sm" @click="loadOrders">Tentar novamente</Button>
+				</div>
+				<p v-else-if="filteredRows.length === 0" class="py-8 text-center text-sm text-text-secondary">
+					Nenhuma ordem de serviço encontrada.
+				</p>
+				<p v-if="actionError" class="text-sm text-red-primary" role="alert">{{ actionError }}</p>
+				<Table v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0" :columns="columns"
+					:rows="paginatedOrderRows" row-key="id" :actions="canManageOrders ? ['view', 'edit', 'delete'] : ['view']"
+					@row-action="handleRowAction" />
+				<PaginationControls v-if="!isLoadingOrders && !ordersError && filteredRows.length > 0"
+					v-model:page="ordersCurrentPage" v-model:page-size="ordersPageSize" :total="filteredRows.length"
+					item-label="Ordens" />
 			</div>
 
 			<div v-else class="space-y-6 rounded-lg bg-bg px-8 py-2">
 				<div class="-mt-2 space-y-4">
-					<button type="button" class="inline-flex items-center gap-1 text-sm font-medium text-red-primary hover:underline" @click="cancelForm">
+					<button type="button"
+						class="inline-flex items-center gap-1 text-sm font-medium text-red-primary hover:underline"
+						@click="cancelForm">
 						<ArrowLeft :size="16" />
 						Voltar
 					</button>
@@ -485,50 +547,73 @@ function handleRowAction({ action, row }) {
 				</div>
 
 				<div v-if="isEditing" class="space-y-2">
-					<label for="order-number" class="text-xs font-medium text-text-primary">Nº da OS <span class="text-red-primary">*</span></label>
-					<input id="order-number" v-model="orderForm.number" type="text" required disabled class="w-full cursor-not-allowed rounded-lg bg-gray-300 px-3 py-3 text-sm text-gray-600 outline-none" />
+					<label for="order-number" class="text-xs font-medium text-text-primary">Nº da OS <span
+							class="text-red-primary">*</span></label>
+					<input id="order-number" v-model="orderForm.number" type="text" required disabled
+						class="w-full cursor-not-allowed rounded-lg bg-gray-300 px-3 py-3 text-sm text-gray-600 outline-none" />
 				</div>
 
 				<div class="grid grid-cols-1 gap-5 md:grid-cols-2">
 					<div class="space-y-2">
-						<label for="order-opening-date" class="text-xs font-medium text-text-primary">Data de início <span class="text-red-primary">*</span></label>
-						<input id="order-opening-date" v-model="orderForm.openingDate" type="date" required :disabled="isEditing" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600" />
+						<label for="order-opening-date" class="text-xs font-medium text-text-primary">Data de início
+							<span class="text-red-primary">*</span></label>
+						<input id="order-opening-date" v-model="orderForm.openingDate" type="date" required
+							:disabled="isEditing"
+							class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600" />
 					</div>
 					<div class="space-y-2">
-						<label for="order-conclusion-date" class="text-xs font-medium text-text-primary">Data de término</label>
-						<input id="order-conclusion-date" v-model="orderForm.conclusionDate" type="date" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+						<label for="order-conclusion-date" class="text-xs font-medium text-text-primary">Data de
+							término</label>
+						<input id="order-conclusion-date" v-model="orderForm.conclusionDate" type="date"
+							class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
 					</div>
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-title" class="text-xs font-medium text-text-primary">Título <span class="text-red-primary">*</span></label>
-					<input id="order-title" v-model="orderForm.title" type="text" maxlength="100" required placeholder="Ex.: Manutenção de equipamento" class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
+					<label for="order-title" class="text-xs font-medium text-text-primary">Título <span
+							class="text-red-primary">*</span></label>
+					<input id="order-title" v-model="orderForm.title" type="text" maxlength="100" required
+						placeholder="Ex.: Manutenção de equipamento"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary" />
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-sector" class="text-xs font-medium text-text-primary">Setor <span class="text-red-primary">*</span></label>
-					<select id="order-sector" v-model="orderForm.sector" required :disabled="isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary" @change="handleSectorChange">
+					<label for="order-sector" class="text-xs font-medium text-text-primary">Setor <span
+							class="text-red-primary">*</span></label>
+					<select id="order-sector" v-model="orderForm.sector" required
+						:disabled="isLoadingOptions || Boolean(optionsError)"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary"
+						@change="handleSectorChange">
 						<option value="">Selecione</option>
 						<option v-for="sector in formSectorOptions" :key="sector" :value="sector">{{ sector }}</option>
 					</select>
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-asset" class="text-xs font-medium text-text-primary">Ativo do setor <span class="text-red-primary">*</span></label>
-					<select id="order-asset" v-model="orderForm.asset" required :disabled="!orderForm.sector || isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
-						<option value="">{{ orderForm.sector ? 'Selecione um ativo' : 'Selecione primeiro um setor' }}</option>
-						<option v-for="asset in formAssetOptions" :key="asset.id_ativos" :value="String(asset.id_ativos)">
+					<label for="order-asset" class="text-xs font-medium text-text-primary">Ativo do setor <span
+							class="text-red-primary">*</span></label>
+					<select id="order-asset" v-model="orderForm.asset" required
+						:disabled="!orderForm.sector || isLoadingOptions || Boolean(optionsError)"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+						<option value="">{{ orderForm.sector ? 'Selecione um ativo' : 'Selecione primeiro um setor' }}
+						</option>
+						<option v-for="asset in formAssetOptions" :key="asset.id_ativos"
+							:value="String(asset.id_ativos)">
 							{{ asset.nome }}
 						</option>
 					</select>
-					<p v-if="orderForm.sector && !formAssetOptions.length && !isLoadingOptions" class="text-xs text-text-secondary">
+					<p v-if="orderForm.sector && !formAssetOptions.length && !isLoadingOptions"
+						class="text-xs text-text-secondary">
 						Não há ativos ativos cadastrados neste setor.
 					</p>
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-lab" class="text-xs font-medium text-text-primary">Laboratório <span class="text-red-primary">*</span></label>
-					<select id="order-lab" v-model="orderForm.lab" required :disabled="isLoadingOptions || Boolean(optionsError)" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+					<label for="order-lab" class="text-xs font-medium text-text-primary">Laboratório <span
+							class="text-red-primary">*</span></label>
+					<select id="order-lab" v-model="orderForm.lab" required
+						:disabled="isLoadingOptions || Boolean(optionsError)"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
 						<option value="">Selecione</option>
 						<option v-for="lab in laboratories" :key="lab.id_sala" :value="String(lab.id_sala)">
 							{{ lab.localizacao }} - {{ lab.nome }}
@@ -536,27 +621,45 @@ function handleRowAction({ action, row }) {
 					</select>
 				</div>
 
+				<div v-if="canManageOrders" class="space-y-2">
+					<label for="order-responsible" class="text-xs font-medium text-text-primary">Responsável</label>
+					<select id="order-responsible" v-model="orderForm.responsible"
+						:disabled="isLoadingOptions || Boolean(optionsError)"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+						<option value="">Não atribuído</option>
+						<option v-for="responsible in responsibles" :key="responsible.id_user"
+							:value="String(responsible.id_user)">
+							{{ responsible.nome }}
+						</option>
+					</select>
+				</div>
+
 				<div class="space-y-2">
-					<label for="order-status" class="text-xs font-medium text-text-primary">Status <span class="text-red-primary">*</span></label>
-					<select id="order-status" v-model="orderForm.status" class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
+					<label for="order-status" class="text-xs font-medium text-text-primary">Status <span
+							class="text-red-primary">*</span></label>
+					<select id="order-status" v-model="orderForm.status"
+						class="w-full rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-transparent transition focus:ring-red-primary">
 						<option value="">Selecione</option>
 						<option value="ABERTA">Aberta</option>
 						<option value="EM_ANDAMENTO">Em andamento</option>
-						<option value="CONCLUIDA">Concluída</option>
 						<option value="CANCELADA">Cancelada</option>
 					</select>
 				</div>
 
 				<div class="space-y-2">
-					<label for="order-description" class="text-xs font-medium text-text-primary">Descrição <span class="text-red-primary">*</span></label>
-					<textarea id="order-description" v-model="orderForm.description" rows="5" placeholder="Descreva com detalhes o serviço" class="w-full resize-none rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
+					<label for="order-description" class="text-xs font-medium text-text-primary">Descrição <span
+							class="text-red-primary">*</span></label>
+					<textarea id="order-description" v-model="orderForm.description" rows="5"
+						placeholder="Descreva com detalhes o serviço"
+						class="w-full resize-none rounded-lg bg-white px-3 py-3 text-sm outline-none ring-1 ring-transparent transition focus:ring-red-primary"></textarea>
 				</div>
 
 				<p v-if="formError" class="text-sm text-red-primary" role="alert">{{ formError }}</p>
 
 				<div class="flex items-center justify-between pt-8">
 					<Button variant="outline" @click="cancelForm">Cancelar</Button>
-					<Button variant="primary" :disabled="isSaving || isLoadingOptions || Boolean(optionsError)" @click="createOrder">
+					<Button variant="primary" :disabled="isSaving || isLoadingOptions || Boolean(optionsError)"
+						@click="createOrder">
 						{{ isSaving ? 'Criando...' : isEditing ? 'Salvar' : 'Criar Ordem' }}
 					</Button>
 				</div>
@@ -589,9 +692,17 @@ function handleRowAction({ action, row }) {
 							<dt class="font-medium text-text-primary">Status</dt>
 							<dd class="text-right text-text-secondary">{{ selectedOrder.status }}</dd>
 						</div>
+						<div class="flex items-start justify-between gap-6">
+							<dt class="font-medium text-text-primary">Responsável</dt>
+							<dd class="text-right text-text-secondary">{{ selectedOrder.responsible }}</dd>
+						</div>
 						<div class="space-y-2">
-							<dt class="font-medium text-text-primary">Descrição</dt>
+							<dt class="font-medium text-text-primary">Descrição do serviço</dt>
 							<dd class="text-text-secondary">{{ selectedOrder.description }}</dd>
+						</div>
+						<div v-if="selectedOrder.completionDescription" class="space-y-2">
+							<dt class="font-medium text-text-primary">Serviço realizado</dt>
+							<dd class="text-text-secondary">{{ selectedOrder.completionDescription }}</dd>
 						</div>
 					</dl>
 				</div>
@@ -599,63 +710,68 @@ function handleRowAction({ action, row }) {
 					{{ statusActionError }}
 				</p>
 
-				<template #footer v-if="canManageOrders && ['ABERTA', 'EM_ANDAMENTO'].includes(selectedOrder?.statusValue)">
+				<template #footer
+					v-if="canManageOrders && ['ABERTA', 'EM_ANDAMENTO'].includes(selectedOrder?.statusValue)">
 					<div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<Button variant="outline" size="sm" class="self-start" @click="openEditForm(selectedOrder)">
 							<Pencil :size="16" />
 							Editar
 						</Button>
 						<div class="flex flex-wrap gap-2 sm:justify-end">
-						<Button
-							v-if="selectedOrder.statusValue === 'ABERTA'"
-							variant="primary"
-							size="sm"
-							:disabled="isUpdatingStatus"
-							@click="requestStatusAction('start')"
-						>
-							<Play :size="16" fill="currentColor" />
-							Iniciar
-						</Button>
-						<template v-else>
-							<Button variant="outline" size="sm" :disabled="isUpdatingStatus" @click="requestStatusAction('cancel')">
-								<X :size="16" />
-								Cancelar ordem
+							<Button v-if="selectedOrder.statusValue === 'ABERTA'" variant="primary" size="sm"
+								:disabled="isUpdatingStatus" @click="requestStatusAction('start')">
+								<Play :size="16" fill="currentColor" />
+								Iniciar
 							</Button>
-							<Button variant="primary" size="sm" :disabled="isUpdatingStatus" @click="requestStatusAction('finish')">
-								<Check :size="16" />
-								Finalizar
-							</Button>
-						</template>
+							<template v-else>
+								<Button variant="outline" size="sm" :disabled="isUpdatingStatus"
+									@click="requestStatusAction('cancel')">
+									<X :size="16" />
+									Cancelar ordem
+								</Button>
+								<Button variant="primary" size="sm" :disabled="isUpdatingStatus"
+									@click="requestStatusAction('finish')">
+									<Check :size="16" />
+									Finalizar
+								</Button>
+							</template>
 						</div>
 					</div>
 				</template>
 			</Modal>
 
-			<ConfirmModal
-				v-model="showConfirmation"
-				:title="{
-					start: 'Iniciar OS',
-					finish: 'Finalizar OS',
-					cancel: 'Cancelar OS',
-					save: 'Salvar alterações',
-					delete: 'Excluir OS'
-				}[confirmationAction]"
-				:message="{
+			<ConfirmModal v-model="showConfirmation" :title="{
+				start: 'Iniciar OS',
+				finish: 'Finalizar OS',
+				cancel: 'Cancelar OS',
+				save: 'Salvar alterações',
+				delete: 'Excluir OS'
+			}[confirmationAction]" :message="{
 					start: 'Deseja iniciar esta Ordem de Serviço?',
 					finish: 'Deseja finalizar esta Ordem de Serviço?',
 					cancel: 'Deseja cancelar esta Ordem de Serviço?',
 					save: 'Tem certeza que deseja salvar as alterações desta Ordem de Serviço?',
 					delete: 'Tem certeza que deseja excluir esta Ordem de Serviço? Essa ação não pode ser revertida.'
-				}[confirmationAction]"
-				:confirm-text="{
+				}[confirmationAction]" :confirm-text="{
 					start: 'Iniciar',
 					finish: 'Finalizar',
 					cancel: 'Cancelar ordem',
 					save: 'Salvar',
 					delete: 'Excluir'
-				}[confirmationAction]"
-				@confirm="confirmOrderAction"
-			/>
+				}[confirmationAction]" :close-on-confirm="confirmationAction !== 'finish'"
+					@confirm="confirmOrderAction">
+					<template v-if="confirmationAction === 'finish'">
+						<label for="completion-description" class="block text-sm font-medium text-text-primary">
+							Descreva o que foi feito <span class="text-red-primary">*</span>
+						</label>
+						<textarea id="completion-description" v-model="completionDescription" rows="4" required
+							placeholder="Informe os serviços realizados"
+							class="mt-2 w-full resize-y rounded-lg bg-white px-3 py-3 text-sm text-text-primary outline-none ring-1 ring-gray-200 transition focus:ring-red-primary"></textarea>
+						<p v-if="statusActionError" class="mt-2 text-sm text-red-primary" role="alert">
+							{{ statusActionError }}
+						</p>
+					</template>
+				</ConfirmModal>
 		</section>
 	</main>
 </template>

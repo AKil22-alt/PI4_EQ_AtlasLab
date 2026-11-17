@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   createLaboratoryRequest,
@@ -13,17 +13,19 @@ import {
   createAssetGroupRequest,
   updateAssetGroupRequest,
   createAssetRequest,
+  assetQrCodeImageRequest,
   updateAssetRequest,
   moveAssetRequest,
   listAllPagesRequest,
   clearMovementHistoryRequest
 } from '../services/api'
 import Table from '../components/Table.vue';
+import PaginationControls from '../components/PaginationControls.vue';
 import LineChart from '../components/LineChart.vue'
 import LabCard from '../components/LabCard.vue';
 import Button from '../components/Button.vue';
 import Searchbar from '../components/Searchbar.vue';
-import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRightLeft, Download, Layers, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import Modal from '../components/Modal.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
 import { useAuthStore } from '../store/auth'
@@ -34,6 +36,8 @@ const activeTab = ref('labs')
 const searchText = ref('')
 const assetSearchText = ref('')
 const movementSearchText = ref('')
+const movementPageSize = ref(10)
+const movementCurrentPage = ref(1)
 const allMovementRecords = ref([])
 const isLoadingMovementHistory = ref(false)
 const movementHistoryError = ref('')
@@ -41,6 +45,10 @@ const clearMovementHistoryError = ref('')
 const selectedAssetMovements = ref([])
 const isLoadingAssetMovements = ref(false)
 const assetMovementsError = ref('')
+const assetQrImageUrl = ref('')
+const isLoadingAssetQr = ref(false)
+const assetQrError = ref('')
+let assetQrRequestId = 0
 
 const labs = reactive([])
 const groups = reactive([])
@@ -73,6 +81,14 @@ const filteredMovementRows = computed(() => {
     justification: movement.justificativa || 'Não informada'
   })).filter((movement) => !query || Object.values(movement)
     .some((value) => String(value).toLowerCase().includes(query)))
+})
+const paginatedMovementRows = computed(() => {
+  const start = (movementCurrentPage.value - 1) * movementPageSize.value
+  return filteredMovementRows.value.slice(start, start + movementPageSize.value)
+})
+
+watch([filteredMovementRows, movementPageSize], () => {
+  movementCurrentPage.value = 1
 })
 
 async function loadMovementHistory() {
@@ -122,6 +138,47 @@ async function loadSelectedAssetHistory(assetId) {
   }
 }
 
+function clearAssetQrImage() {
+  assetQrRequestId += 1
+  if (assetQrImageUrl.value) URL.revokeObjectURL(assetQrImageUrl.value)
+  assetQrImageUrl.value = ''
+  isLoadingAssetQr.value = false
+  assetQrError.value = ''
+}
+
+async function loadAssetQrImage(assetId) {
+  if (!canManageAssets.value) return
+
+  const requestId = ++assetQrRequestId
+  if (assetQrImageUrl.value) URL.revokeObjectURL(assetQrImageUrl.value)
+  assetQrImageUrl.value = ''
+  isLoadingAssetQr.value = true
+  assetQrError.value = ''
+
+  try {
+    const image = await assetQrCodeImageRequest(assetId)
+    if (requestId !== assetQrRequestId || selectedAsset.value?.id !== assetId) return
+    assetQrImageUrl.value = URL.createObjectURL(image)
+  } catch (error) {
+    if (requestId === assetQrRequestId) {
+      assetQrError.value = error.message || 'Não foi possível carregar o QR Code.'
+    }
+  } finally {
+    if (requestId === assetQrRequestId) isLoadingAssetQr.value = false
+  }
+}
+
+function downloadAssetQrImage() {
+  if (!assetQrImageUrl.value || !selectedAsset.value) return
+
+  const link = document.createElement('a')
+  link.href = assetQrImageUrl.value
+  link.download = `ativo-${selectedAsset.value.id}.png`
+  link.click()
+}
+
+onUnmounted(clearAssetQrImage)
+
 function mapLaboratory(laboratory) {
   return {
     id: laboratory.id_sala,
@@ -156,7 +213,7 @@ onMounted(async () => {
   try {
     const response = await listLaboratoriesRequest()
     const laboratories = Array.isArray(response) ? response : response.results
-    labs.push(...laboratories.map(mapLaboratory))
+    labs.push(...laboratories.map(mapLaboratory).sort((first, second) => second.id - first.id))
   } catch (error) {
     console.error('Erro ao carregar laboratórios:', error)
   }
@@ -172,7 +229,7 @@ onMounted(async () => {
 
   try {
     const assets = await listAllPagesRequest('/ativos/')
-    rows.push(...assets.map(mapAsset))
+    rows.push(...assets.map(mapAsset).sort((first, second) => second.id - first.id))
   } catch (error) {
     console.error('Erro ao carregar ativos:', error)
   }
@@ -241,6 +298,9 @@ const showGroupModal = ref(false)
 const showDetailsModal = ref(false)
 const showMovementModal = ref(false)
 const selectedAsset = ref(null)
+watch(showDetailsModal, (isOpen) => {
+  if (!isOpen) clearAssetQrImage()
+})
 const selectedLab = ref(null)
 const showConfirmation = ref(false)
 const confirmationAction = ref(null)
@@ -294,6 +354,7 @@ const assetFilters = reactive({
   patrimony: '',
   name: '',
   location: '',
+  currentLabId: '',
   status: ''
 })
 const assetPageSize = ref(10)
@@ -317,27 +378,22 @@ const filteredRows = computed(() => {
     const matchesLocation = !assetFilters.location
       || row.origin === assetFilters.location
       || row.current === assetFilters.location
+    const matchesCurrentLab = !assetFilters.currentLabId
+      || String(row.currentLabId) === String(assetFilters.currentLabId)
     const matchesStatus = !assetFilters.status || row.status === assetFilters.status
 
     return matchesSearch
       && matchesPatrimony
       && matchesName
       && matchesLocation
+      && matchesCurrentLab
       && matchesStatus
   })
 })
-const assetPageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length / assetPageSize.value)))
 const paginatedRows = computed(() => {
   const start = (assetCurrentPage.value - 1) * assetPageSize.value
   return filteredRows.value.slice(start, start + assetPageSize.value)
 })
-const firstVisibleAsset = computed(() => filteredRows.value.length
-  ? (assetCurrentPage.value - 1) * assetPageSize.value + 1
-  : 0)
-const lastVisibleAsset = computed(() => Math.min(
-  assetCurrentPage.value * assetPageSize.value,
-  filteredRows.value.length
-))
 
 watch([filteredRows, assetPageSize], () => {
   assetCurrentPage.value = 1
@@ -348,7 +404,17 @@ function clearAssetFilters() {
   assetFilters.patrimony = ''
   assetFilters.name = ''
   assetFilters.location = ''
+  assetFilters.currentLabId = ''
   assetFilters.status = ''
+}
+
+function showAssetsForLab(lab) {
+  if (!lab) return
+
+  clearAssetFilters()
+  assetFilters.currentLabId = String(lab.id)
+  activeTab.value = 'assets'
+  showLabDetailsModal.value = false
 }
 
 function resetAssetForm() {
@@ -550,11 +616,16 @@ async function createAsset() {
       status: assetForm.status === 'Ativo'
     }
     const asset = await createAssetRequest(payload)
-
-    rows.push(mapAsset(asset))
+    const createdAsset = mapAsset(asset)
+    rows.unshift(createdAsset)
 
     showAssetModal.value = false
     resetAssetForm()
+    selectedAsset.value = createdAsset
+    selectedAssetMovements.value = []
+    showDetailsModal.value = true
+    void loadSelectedAssetHistory(createdAsset.id)
+    void loadAssetQrImage(createdAsset.id)
   } catch (error) {
     console.error('Erro ao criar ativo:', error)
   }
@@ -750,6 +821,7 @@ function handleRowAction({ action, row }) {
     selectedAssetMovements.value = []
     showDetailsModal.value = true
     void loadSelectedAssetHistory(row.id)
+    void loadAssetQrImage(row.id)
   } else if (action === 'edit') {
     openAssetForm(row)
   } else if (action === 'delete') {
@@ -760,7 +832,8 @@ function handleRowAction({ action, row }) {
 
 <template>
   <main class="min-w-0 space-y-6 px-4 pb-8 pt-0 sm:px-8">
-    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8" aria-label="Seções de laboratórios, ativos e movimentações">
+    <nav class="-mx-8 flex gap-6 border-b border-red-1 bg-white px-8"
+      aria-label="Seções de laboratórios, ativos e movimentações">
       <button type="button" :class="[
         'border-b-2 px-2 pb-2 text-sm',
         activeTab === 'labs'
@@ -883,7 +956,7 @@ function handleRowAction({ action, row }) {
             <Pencil :size="16" />
             Editar
           </Button>
-          <Button variant="primary" size="sm" @click="activeTab = 'assets'; showLabDetailsModal = false">
+          <Button variant="primary" size="sm" @click="showAssetsForLab(selectedLab)">
             Ver Ativos
           </Button>
         </template>
@@ -897,9 +970,8 @@ function handleRowAction({ action, row }) {
       </article>
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <LabCard v-for="lab in filteredLabs" :key="lab.id" :acronym="lab.acronym" :title="lab.title"
-          :responsible="lab.responsible" :can-manage="canManageLabs"
-          @view-assets="activeTab = 'assets'" @view-details="openLabDetails(lab)"
-          @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
+          :responsible="lab.responsible" :can-manage="canManageLabs" @view-assets="showAssetsForLab(lab)"
+          @view-details="openLabDetails(lab)" @edit="openLabForm(lab)" @delete="requestLabDeletion(lab)" />
       </div>
     </section>
 
@@ -919,8 +991,8 @@ function handleRowAction({ action, row }) {
               <label for="asset-qr-code" class="text-sm font-medium text-text-primary">
                 QR Code
               </label>
-              <input id="asset-qr-code" :value="assetForm.qrCode || 'Gerado automaticamente ao criar'" type="text" readonly
-                class="w-full rounded-lg bg-gray-100 px-3 py-3 text-sm text-text-secondary outline-none" />
+              <input id="asset-qr-code" :value="assetForm.qrCode || 'Gerado automaticamente ao criar'" type="text"
+                readonly class="w-full rounded-lg bg-gray-100 px-3 py-3 text-sm text-text-secondary outline-none" />
             </div>
 
             <div class="space-y-2">
@@ -1058,7 +1130,8 @@ function handleRowAction({ action, row }) {
                       TA {{ group.numero_ta }} · {{ group.tipo }} · {{ group.setor }}
                     </p>
                   </div>
-                  <button type="button" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-1 hover:bg-red-2"
+                  <button type="button"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-1 hover:bg-red-2"
                     :aria-label="`Editar grupo ${group.nome}`" :title="`Editar grupo ${group.nome}`"
                     @click="editGroup(group)">
                     <Pencil :size="16" />
@@ -1112,6 +1185,17 @@ function handleRowAction({ action, row }) {
         </label>
 
         <label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
+          Laboratório atual
+          <select v-model="assetFilters.currentLabId"
+            class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
+            <option value="">Todos</option>
+            <option v-for="lab in labs" :key="`asset-current-lab-${lab.id}`" :value="String(lab.id)">
+              {{ lab.title }} · {{ lab.acronym }}
+            </option>
+          </select>
+        </label>
+
+        <label class="flex min-w-36 flex-1 flex-col gap-2 text-sm text-text-primary">
           Status
           <select v-model="assetFilters.status"
             class="rounded-lg bg-white px-3 py-3 text-sm text-text-secondary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
@@ -1130,38 +1214,8 @@ function handleRowAction({ action, row }) {
       <Table :columns="columns" :rows="paginatedRows" row-key="id"
         :actions="canManageAssets ? ['view', 'edit', 'delete'] : ['view']" @row-action="handleRowAction" />
 
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-text-secondary" aria-live="polite">
-          Mostrando {{ firstVisibleAsset }}–{{ lastVisibleAsset }} de {{ filteredRows.length }} ativos
-        </p>
-        <div class="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
-          <label class="flex items-center gap-2 text-sm text-text-secondary">
-            Ativos por página
-            <select v-model.number="assetPageSize"
-              class="rounded-lg bg-white px-2 py-2 text-sm text-text-primary outline-none ring-1 ring-gray-200 focus:ring-red-primary">
-              <option :value="5">5</option>
-              <option :value="10">10</option>
-              <option :value="50">50</option>
-              <option :value="100">100</option>
-            </select>
-          </label>
-          <div class="flex items-center gap-2">
-            <button type="button" aria-label="Página anterior" title="Página anterior"
-              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="assetCurrentPage === 1" @click="assetCurrentPage -= 1">
-              <ArrowLeft :size="16" />
-            </button>
-            <span class="min-w-20 text-center text-sm text-text-secondary">
-              {{ assetCurrentPage }} / {{ assetPageCount }}
-            </span>
-            <button type="button" aria-label="Próxima página" title="Próxima página"
-              class="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-red-1 ring-1 ring-gray-200 hover:bg-red-2 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="assetCurrentPage >= assetPageCount" @click="assetCurrentPage += 1">
-              <ArrowRight :size="16" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <PaginationControls v-model:page="assetCurrentPage" v-model:page-size="assetPageSize"
+        :total="filteredRows.length" item-label="Ativos" />
 
       <Modal v-model="showDetailsModal" title="Detalhes do ativo" size="md">
         <div v-if="selectedAsset" class="space-y-5 border-t border-red-primary pt-4">
@@ -1196,6 +1250,31 @@ function handleRowAction({ action, row }) {
             </div>
           </dl>
 
+          <section v-if="canManageAssets" class="space-y-3 border-t border-gray-200 pt-4">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-base font-semibold text-text-primary">Imagem do QR Code</h3>
+              <Button variant="outline" size="sm" :disabled="isLoadingAssetQr || !assetQrImageUrl"
+                @click="downloadAssetQrImage">
+                <Download :size="16" />
+                Baixar PNG
+              </Button>
+            </div>
+            <div class="flex min-h-48 items-center justify-center rounded-lg border border-gray-200 bg-white p-3">
+              <p v-if="isLoadingAssetQr" class="text-sm text-text-secondary" role="status">
+                Carregando QR Code...
+              </p>
+              <div v-else-if="assetQrError" class="text-center" role="alert">
+                <p class="text-sm text-red-primary">{{ assetQrError }}</p>
+                <button type="button" class="mt-2 text-sm font-medium text-red-primary underline"
+                  @click="loadAssetQrImage(selectedAsset.id)">
+                  Tentar novamente
+                </button>
+              </div>
+              <img v-else-if="assetQrImageUrl" :src="assetQrImageUrl" :alt="`QR Code do ativo ${selectedAsset.name}`"
+                class="h-48 w-48 object-contain" />
+            </div>
+          </section>
+
           <section class="border-t border-gray-200 pt-4" aria-label="Histórico de movimentações">
             <h3 class="text-base font-semibold text-text-primary">Histórico de movimentações</h3>
             <p v-if="isLoadingAssetMovements" class="mt-3 text-sm text-text-secondary" role="status">
@@ -1203,7 +1282,8 @@ function handleRowAction({ action, row }) {
             </p>
             <p v-else-if="assetMovementsError" class="mt-3 text-sm text-red-primary" role="alert">
               {{ assetMovementsError }}
-              <button class="ml-1 font-semibold underline" type="button" @click="loadSelectedAssetHistory(selectedAsset.id)">
+              <button class="ml-1 font-semibold underline" type="button"
+                @click="loadSelectedAssetHistory(selectedAsset.id)">
                 Tentar novamente
               </button>
             </p>
@@ -1262,7 +1342,8 @@ function handleRowAction({ action, row }) {
       <p v-if="clearMovementHistoryError" class="text-sm text-red-primary" role="alert">
         {{ clearMovementHistoryError }}
       </p>
-      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary" role="status">
+      <p v-if="isLoadingMovementHistory" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary"
+        role="status">
         Carregando movimentações...
       </p>
       <div v-else-if="movementHistoryError" class="rounded-lg bg-white px-4 py-6" role="alert">
@@ -1275,10 +1356,15 @@ function handleRowAction({ action, row }) {
       <p v-else-if="allMovementRecords.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
         Nenhuma movimentação registrada.
       </p>
-      <p v-else-if="filteredMovementRows.length === 0" class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
+      <p v-else-if="filteredMovementRows.length === 0"
+        class="rounded-lg bg-white px-4 py-6 text-sm text-text-secondary">
         Nenhuma movimentação corresponde à pesquisa.
       </p>
-      <Table v-else :columns="movementColumns" :rows="filteredMovementRows" row-key="id" :actions="[]" />
+      <div v-else class="space-y-4">
+        <Table :columns="movementColumns" :rows="paginatedMovementRows" row-key="id" :actions="[]" />
+        <PaginationControls v-model:page="movementCurrentPage" v-model:page-size="movementPageSize"
+          :total="filteredMovementRows.length" item-label="Movimentações" />
+      </div>
     </section>
 
     <Modal v-model="showMovementModal" title="Movimentar ativo" size="md">
@@ -1416,7 +1502,8 @@ function handleRowAction({ action, row }) {
 
         <p v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
           class="rounded-lg border border-red-primary/30 p-3 text-sm text-text-primary" role="note">
-          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço permanecerão cadastradas.
+          Se continuar, as movimentações listadas serão apagadas e o ativo será removido das OS. As ordens de serviço
+          permanecerão cadastradas.
         </p>
       </div>
 
@@ -1424,7 +1511,8 @@ function handleRowAction({ action, row }) {
         <Button variant="outline" size="sm" @click="showAssetDeletionErrorModal = false">
           Fechar
         </Button>
-        <Button v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
+        <Button
+          v-if="assetDeletionDependencies.movimentacoes?.length || assetDeletionDependencies.ordens_servico?.length"
           variant="primary" size="sm" @click="forceDeletePendingAsset">
           Excluir mesmo assim
         </Button>
@@ -1435,15 +1523,15 @@ function handleRowAction({ action, row }) {
       ? 'Excluir ativo'
       : confirmationAction === 'delete-lab'
         ? 'Excluir laboratório'
-      : confirmationAction === 'clear-movements'
-        ? 'Limpar histórico de movimentações'
-        : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
-        ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
-        : confirmationAction === 'delete-asset'
-          ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
         : confirmationAction === 'clear-movements'
-          ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
-          : 'Tem certeza que deseja salvar as alterações deste ativo?'"
+          ? 'Limpar histórico de movimentações'
+          : 'Salvar ativo'" :message="confirmationAction === 'delete-lab'
+            ? 'Tem certeza que deseja excluir este laboratório? Essa ação não pode ser revertida.'
+            : confirmationAction === 'delete-asset'
+              ? 'Tem certeza que deseja excluir este ativo? Essa ação não pode ser desfeita.'
+              : confirmationAction === 'clear-movements'
+                ? 'Tem certeza que deseja excluir permanentemente todas as movimentações? Esta ação não pode ser desfeita.'
+                : 'Tem certeza que deseja salvar as alterações deste ativo?'"
       :confirm-text="confirmationAction === 'delete-asset' || confirmationAction === 'delete-lab' || confirmationAction === 'clear-movements' ? 'Excluir permanentemente' : 'Salvar'"
       @confirm="confirmAction" />
   </main>

@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import (
-    ApiToken, Ativo, Cargo, GrupoA, LogAcao, MovimentacoesA,
+    ApiToken, Ativo, Cargo, GrupoA, LogAcao, MovimentacoesA, Notificacao,
     OrdemServico, SalaLab, SolicitacaoCadastro, Usuario,
 )
 
@@ -121,6 +121,83 @@ class ApiViewsTests(TestCase):
         self.assertNotEqual(solicitacao.senha_hash, "senha-nova-123")
         self.assertTrue(check_password("senha-nova-123", solicitacao.senha_hash))
 
+    def test_public_signup_creates_admin_notification_that_can_be_marked_read(self):
+        APIClient().post(
+            "/api/auth/cadastro/",
+            {"nome": "Nova Colaboradora", "email": "NOVA@example.com", "senha": "senha-nova-123"},
+            format="json",
+        )
+        client = self.authenticate(self.admin)
+
+        listed = client.get("/api/auth/notificacoes/")
+        notification = listed.data[0]
+        marked = client.post(f"/api/auth/notificacoes/{notification['id']}/lida/")
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(notification["entidade"], "SolicitacaoCadastro")
+        self.assertEqual(notification["destino"], {
+            "name": "Users",
+            "query": {"tab": "requests", "requestId": str(SolicitacaoCadastro.objects.get().pk)},
+        })
+        self.assertTrue(marked.data["lida"])
+
+    def test_audited_asset_creation_creates_notification_with_direct_target(self):
+        client = self.authenticate(self.admin)
+        created = client.post(
+            "/api/ativos/",
+            {
+                "nome": "Projetor notificado",
+                "local_origem": self.sala.pk,
+                "local_atual": self.sala.pk,
+                "grupo": self.grupo.pk,
+                "status": True,
+            },
+            format="json",
+        )
+
+        listed = client.get("/api/auth/notificacoes/")
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.data[0]["destino"], {
+            "name": "Labs",
+            "query": {"tab": "assets", "assetId": str(created.data["id_ativos"])},
+        })
+
+    def test_notifications_expire_one_day_after_read_and_are_admin_only(self):
+        now = timezone.now()
+        old_read = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação antiga",
+            acao="CRIAR",
+            entidade="Ativo",
+            lida_em=now - timedelta(hours=25),
+        )
+        recent_read = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação lida recentemente",
+            acao="CRIAR",
+            entidade="Ativo",
+            lida_em=now - timedelta(hours=23),
+        )
+        unread = Notificacao.objects.create(
+            usuario=self.admin,
+            mensagem="Notificação não lida",
+            acao="CRIAR",
+            entidade="Ativo",
+        )
+
+        listed = self.authenticate(self.admin).get("/api/auth/notificacoes/")
+        denied = self.authenticate(self.colaborador).get("/api/auth/notificacoes/")
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertCountEqual(
+            [item["id"] for item in listed.data],
+            [recent_read.pk, unread.pk],
+        )
+        self.assertFalse(Notificacao.objects.filter(pk=old_read.pk).exists())
+        self.assertEqual(denied.status_code, 403)
+
     def test_signup_rejects_existing_or_pending_email(self):
         client = APIClient()
         payload = {"nome": "Nova Colaboradora", "email": self.admin.email, "senha": "senha-nova-123"}
@@ -165,6 +242,14 @@ class ApiViewsTests(TestCase):
         self.assertEqual(usuario.cargo, Cargo.COLABORADOR)
         self.assertTrue(check_password("senha-nova-123", usuario.senha))
         self.assertFalse(SolicitacaoCadastro.objects.filter(pk=solicitacao.pk).exists())
+        notifications = client.get("/api/auth/notificacoes/")
+        approval_notification = next(
+            item for item in notifications.data if item["acao"] == "APROVAR"
+        )
+        self.assertEqual(approval_notification["destino"], {
+            "name": "Users",
+            "query": {"userId": str(usuario.pk)},
+        })
 
         rejeitada = SolicitacaoCadastro.objects.create(
             nome="Outra Colaboradora",
@@ -193,6 +278,88 @@ class ApiViewsTests(TestCase):
         ordem = OrdemServico.objects.get(pk=response.data["id_ordem"])
         self.assertEqual(list(ordem.usuarios.all()), [self.colaborador])
         self.assertEqual(response.data["data_termino"], "2026-11-08")
+
+    def test_service_order_can_be_created_with_responsible(self):
+        tecnico = Usuario.objects.create(
+            nome="Técnico Atlas",
+            email="tecnico@example.com",
+            cargo=Cargo.TECNICO,
+            senha=make_password("senha-segura-123"),
+        )
+
+        response = self.authenticate(self.admin).post(
+            "/api/ordens-servico/",
+            {
+                "titulo": "Manutenção do notebook",
+                "descricao": "Verificar o equipamento.",
+                "responsavel": tecnico.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["responsavel"], tecnico.pk)
+        self.assertEqual(response.data["responsavel_detalhes"]["nome"], "Técnico Atlas")
+
+    def test_service_orders_are_listed_newest_first(self):
+        older_order = OrdemServico.objects.create(
+            titulo="Ordem antiga",
+            descricao="Descrição da ordem antiga.",
+        )
+        newer_order = OrdemServico.objects.create(
+            titulo="Ordem nova",
+            descricao="Descrição da ordem nova.",
+        )
+
+        response = self.authenticate(self.admin).get("/api/ordens-servico/")
+        orders = response.data.get("results", response.data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [order["id_ordem"] for order in orders],
+            [newer_order.pk, older_order.pk],
+        )
+
+    def test_service_order_cannot_be_completed_without_completion_description(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção do equipamento",
+            descricao="Equipamento com falha.",
+        )
+
+        response = self.authenticate(self.admin).patch(
+            f"/api/ordens-servico/{order.pk}/",
+            {
+                "status": OrdemServico.Status.CONCLUIDA,
+                "descricao_conclusao": " \n ",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("descricao_conclusao", response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrdemServico.Status.ABERTA)
+
+    def test_service_order_completion_saves_completion_description_separately(self):
+        order = OrdemServico.objects.create(
+            titulo="Manutenção do equipamento",
+            descricao="Equipamento com falha.",
+        )
+
+        response = self.authenticate(self.admin).patch(
+            f"/api/ordens-servico/{order.pk}/",
+            {
+                "status": OrdemServico.Status.CONCLUIDA,
+                "descricao_conclusao": "  Cabo substituído e equipamento testado.  ",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrdemServico.Status.CONCLUIDA)
+        self.assertEqual(order.descricao, "Equipamento com falha.")
+        self.assertEqual(order.descricao_conclusao, "Cabo substituído e equipamento testado.")
 
     def test_asset_movement_updates_location_and_audit(self):
         client = self.authenticate(self.admin)
@@ -297,6 +464,31 @@ class ApiViewsTests(TestCase):
             entidade="Ativo",
             entidade_id=str(created.data["id_ativos"]),
         ).exists())
+
+    def test_asset_qr_image_is_png_and_only_available_to_managers(self):
+        url = f"/api/ativos/{self.ativo.pk}/qr-code-imagem/"
+
+        response = self.authenticate(self.admin).get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        denied = self.authenticate(self.colaborador).get(url)
+        self.assertEqual(denied.status_code, 403)
+
+    def test_asset_can_be_looked_up_by_qr_code(self):
+        client = self.authenticate(self.colaborador)
+
+        found = client.get("/api/ativos/por-qr/", {"codigo": self.ativo.qr_code})
+        missing_code = client.get("/api/ativos/por-qr/")
+        unknown_code = client.get("/api/ativos/por-qr/", {"codigo": "ATLASLAB-INVALIDO"})
+
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.data["id_ativos"], self.ativo.pk)
+        self.assertEqual(found.data["qr_code"], self.ativo.qr_code)
+        self.assertEqual(missing_code.status_code, 400)
+        self.assertEqual(unknown_code.status_code, 404)
 
     def test_asset_with_service_order_cannot_be_deleted(self):
         order = OrdemServico.objects.create(

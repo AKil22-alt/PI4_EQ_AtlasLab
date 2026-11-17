@@ -19,8 +19,7 @@ import {
 	approveRequestRequest,
 	currentUserRequest,
 	deleteUserRequest,
-	listRequestsRequest,
-	listUsersRequest,
+	listAllPagesRequest,
 	loginRequest,
 	logoutRequest,
 	registerRequest,
@@ -80,16 +79,21 @@ export const useAuthStore = defineStore('auth', () => {
 
 	async function loadAdminData() {
 		const [loadedUsers, loadedRequests] = await Promise.all([
-			listUsersRequest(),
-			listRequestsRequest()
+			listAllPagesRequest('/usuarios/'),
+			listAllPagesRequest('/auth/solicitacoes/')
 		])
-		users.value = loadedUsers.results || loadedUsers
-		pendingRequests.value = loadedRequests.map((request) => ({
+		users.value = loadedUsers
+			.slice()
+			.sort((first, second) => second.id_user - first.id_user)
+		pendingRequests.value = loadedRequests
+			.slice()
+			.sort((first, second) => new Date(second.criada_em) - new Date(first.criada_em))
+			.map((request) => ({
 			id: request.id,
 			name: request.nome,
 			email: request.email,
 			requestedAt: new Date(request.criada_em).toLocaleDateString('pt-BR')
-		}))
+			}))
 	}
 
 	async function approveRequest(requestId) {

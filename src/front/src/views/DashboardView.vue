@@ -18,7 +18,7 @@ import { dashboardSummaryRequest } from '../services/api'
 const summaryCards = ref([
     { id: 'users', title: 'Usuários', value: '—', icon: Users, to: '/users' },
     { id: 'labs', title: 'Laboratórios', value: '—', icon: FlaskConical, to: '/labs' },
-    { id: 'assets', title: 'Ativos', value: '—', icon: Package, to: '/labs' },
+    { id: 'assets', title: 'Ativos', value: '—', icon: Package, to: '/labs?tab=assets' },
     { id: 'orders', title: 'Ordens de Serviço', value: '—', icon: ClipboardList, to: '/orders', active: true }
 ])
 

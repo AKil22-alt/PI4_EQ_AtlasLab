@@ -34,6 +34,12 @@ const routes = [
     name: 'Users',
     component: () => import('../views/UsersView.vue'),
     meta: { title: 'Usuários', requiresCargo: 'ADM' }
+  },
+  {
+    path: '/notifications',
+    name: 'Notifications',
+    component: () => import('../views/NotificationsView.vue'),
+    meta: { title: 'Notificações', requiresCargo: 'ADM' }
   }
 ]
 
