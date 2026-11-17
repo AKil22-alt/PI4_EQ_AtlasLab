@@ -67,12 +67,16 @@ class HealthView(APIView):
 class DashboardView(APIView):
     permission_classes = [IsAuthenticated, CargoPermission]
     roles_read = TODOS
+    roles_write = ADMIN
 
     def get(self, request):
         today = timezone.localdate()
         week_start = today - timedelta(days=today.weekday())
         week_end = week_start + timedelta(days=7)
         activity_logs = LogAcao.objects.exclude(acao__in=["LOGIN", "LOGOUT"])
+        daily_activity_logs = activity_logs.filter(criado_em__date=today).exclude(
+            acao="LIMPAR_ATIVIDADES"
+        )
 
         weekly_counts = activity_logs.filter(
             criado_em__date__gte=week_start,
@@ -88,7 +92,7 @@ class DashboardView(APIView):
         ).annotate(total=Count("id_ativos")).order_by("local_atual__localizacao")
         recent_activities = [
             self._serialize_activity(log)
-            for log in activity_logs.select_related("usuario")[:4]
+            for log in daily_activity_logs.select_related("usuario")[:4]
         ]
 
         return Response({
@@ -108,6 +112,19 @@ class DashboardView(APIView):
             },
             "recent_activities": recent_activities,
         })
+
+    def delete(self, request):
+        today = timezone.localdate()
+        removidas, _ = LogAcao.objects.filter(
+            criado_em__date=today
+        ).exclude(acao__in=["LOGIN", "LOGOUT"]).delete()
+        registrar_acao(
+            request,
+            "LIMPAR_ATIVIDADES",
+            "LogAcao",
+            detalhes={"quantidade": removidas},
+        )
+        return Response({"removidas": removidas}, status=status.HTTP_200_OK)
 
     @staticmethod
     def _serialize_activity(log):

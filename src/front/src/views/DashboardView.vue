@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
     ClipboardList,
     FlaskConical,
@@ -13,8 +13,12 @@ import SummaryCard from '../components/SummaryCard.vue'
 import ActivityList from '../components/ActivityList.vue'
 import BarChart from '../components/BarChart.vue'
 import DonutChart from '../components/DonutChart.vue'
-import { dashboardSummaryRequest } from '../services/api'
+import ConfirmModal from '../components/ConfirmModal.vue'
+import { useAuthStore } from '../store/auth'
+import { clearDashboardActivitiesRequest, dashboardSummaryRequest } from '../services/api'
 
+const authStore = useAuthStore()
+const canClearActivities = computed(() => authStore.currentUser?.cargo === 'ADM')
 const summaryCards = ref([
     { id: 'users', title: 'Usuários', value: '—', icon: Users, to: '/users' },
     { id: 'labs', title: 'Laboratórios', value: '—', icon: FlaskConical, to: '/labs' },
@@ -24,6 +28,9 @@ const summaryCards = ref([
 
 const isLoading = ref(true)
 const loadError = ref('')
+const isClearingActivities = ref(false)
+const showClearActivitiesConfirmation = ref(false)
+const clearActivitiesError = ref('')
 const activities = ref([])
 const weeklyActivity = ref({
     labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
@@ -86,6 +93,22 @@ async function loadDashboard() {
     }
 }
 
+async function clearActivities() {
+    isClearingActivities.value = true
+    clearActivitiesError.value = ''
+
+    try {
+        await clearDashboardActivitiesRequest()
+        showClearActivitiesConfirmation.value = false
+        await loadDashboard()
+    } catch (error) {
+        console.error('Erro ao limpar atividades do dashboard:', error)
+        clearActivitiesError.value = error.message || 'Não foi possível limpar as atividades. Tente novamente.'
+    } finally {
+        isClearingActivities.value = false
+    }
+}
+
 onMounted(loadDashboard)
 </script>
 
@@ -107,11 +130,15 @@ onMounted(loadDashboard)
                     <RefreshCw :size="16" /> Tentar novamente
                 </button>
             </div>
-            <ActivityList v-else-if="activities.length" title="Últimas atividades" :activities="activities" />
-            <article v-else class="min-h-[280px] rounded-lg bg-white px-4 py-4 xl:px-5 xl:py-5">
-                <h2 class="text-lg font-semibold text-text-primary">Últimas atividades</h2>
-                <p class="mt-5 text-sm text-text-secondary">Nenhuma atividade registrada.</p>
-            </article>
+            <ActivityList
+                v-else
+                title="Últimas atividades"
+                :activities="activities"
+                :can-clear="canClearActivities"
+                :is-clearing="isClearingActivities"
+                :clear-error="clearActivitiesError"
+                @clear="showClearActivitiesConfirmation = true"
+            />
 
             <div v-if="!isLoading && !loadError"
             class="min-h-0 space-y-4 min-[1200px]:grid min-[1200px]:h-full min-[1200px]:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -130,5 +157,13 @@ onMounted(loadDashboard)
                 </article>
             </div>
         </section>
+
+        <ConfirmModal
+            v-model="showClearActivitiesConfirmation"
+            title="Limpar atividades"
+            message="Deseja limpar as atividades de hoje? Essa ação não pode ser desfeita."
+            confirm-text="Limpar"
+            @confirm="clearActivities"
+        />
     </main>
 </template>

@@ -7,15 +7,47 @@ const props = defineProps({
     activities: {
         type: Array,
         default: () => []
+    },
+    canClear: {
+        type: Boolean,
+        default: false
+    },
+    isClearing: {
+        type: Boolean,
+        default: false
+    },
+    clearError: {
+        type: String,
+        default: ''
     }
 })
+
+const emit = defineEmits(['clear'])
 </script>
 
 <template>
     <article class="h-full min-h-0 rounded-lg bg-white px-4 py-4 xl:px-5 xl:py-5">
-        <h2 class="text-lg font-semibold text-text-primary">{{ props.title }}</h2>
+        <header class="flex items-center justify-between gap-3">
+            <h2 class="text-lg font-semibold text-text-primary">{{ props.title }}</h2>
+            <button
+                v-if="props.canClear"
+                type="button"
+                class="shrink-0 text-sm font-semibold text-red-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="props.isClearing"
+                @click="emit('clear')"
+            >
+                {{ props.isClearing ? 'Limpando...' : 'Limpar atividades' }}
+            </button>
+        </header>
 
-        <div class="relative mt-5 space-y-4 before:absolute before:bottom-5 before:left-4 before:top-4 before:w-px before:bg-red-primary/20">
+        <p v-if="props.clearError" class="mt-3 text-sm text-red-primary" role="alert">
+            {{ props.clearError }}
+        </p>
+
+        <p v-if="!props.activities.length" class="mt-5 text-sm text-text-secondary">
+            Nenhuma atividade registrada hoje.
+        </p>
+        <div v-else class="relative mt-5 space-y-4 before:absolute before:bottom-5 before:left-4 before:top-4 before:w-px before:bg-red-primary/20">
             <div
                 v-for="activity in props.activities"
                 :key="activity.id"

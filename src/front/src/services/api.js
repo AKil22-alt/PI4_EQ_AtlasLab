@@ -102,6 +102,10 @@ export function dashboardSummaryRequest() {
     return apiRequest('/dashboard/')
 }
 
+export function clearDashboardActivitiesRequest() {
+    return apiRequest('/dashboard/', { method: 'DELETE' })
+}
+
 export async function listAllPagesRequest(path) {
     const items = []
     let page = 1

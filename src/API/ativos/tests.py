@@ -92,6 +92,66 @@ class ApiViewsTests(TestCase):
         self.assertNotIn("detalhes", activity)
         self.assertEqual(APIClient().get("/api/dashboard/").status_code, 401)
 
+    def test_dashboard_recent_activities_only_include_today(self):
+        old_activity = LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="CRIAR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+        )
+        LogAcao.objects.filter(pk=old_activity.pk).update(
+            criado_em=timezone.now() - timedelta(days=2)
+        )
+        LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="CRIAR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+        )
+
+        response = self.authenticate(self.colaborador).get("/api/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["recent_activities"]), 1)
+        self.assertEqual(response.data["recent_activities"][0]["title"],
+                         f"Colaborador Atlas criou Ativo #{self.ativo.pk}")
+
+    def test_only_admin_can_clear_today_dashboard_activities(self):
+        today_activity = LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="CRIAR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+        )
+        old_activity = LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="CRIAR",
+            entidade="Ativo",
+            entidade_id=str(self.ativo.pk),
+        )
+        LogAcao.objects.filter(pk=old_activity.pk).update(
+            criado_em=timezone.now() - timedelta(days=2)
+        )
+        login_activity = LogAcao.objects.create(
+            usuario=self.colaborador,
+            acao="LOGIN",
+            entidade="Usuario",
+            entidade_id=str(self.colaborador.pk),
+        )
+
+        denied = self.authenticate(self.colaborador).delete("/api/dashboard/")
+        self.assertEqual(denied.status_code, 403)
+        self.assertTrue(LogAcao.objects.filter(pk=today_activity.pk).exists())
+
+        response = self.authenticate(self.admin).delete("/api/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"removidas": 1})
+        self.assertFalse(LogAcao.objects.filter(pk=today_activity.pk).exists())
+        self.assertTrue(LogAcao.objects.filter(pk=old_activity.pk).exists())
+        self.assertTrue(LogAcao.objects.filter(pk=login_activity.pk).exists())
+        self.assertTrue(LogAcao.objects.filter(acao="LIMPAR_ATIVIDADES").exists())
+
     def test_login_issues_token_accepted_by_me_endpoint(self):
         client = APIClient()
         response = client.post(
