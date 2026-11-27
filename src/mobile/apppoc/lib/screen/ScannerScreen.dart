@@ -3,14 +3,20 @@ import 'dart:convert';
 import 'package:apppoc/models/patrimonio_model.dart';
 import 'package:apppoc/screen/Home.dart';
 import 'package:apppoc/screen/Scanner.dart';
+import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class ScannerScreen extends StatefulWidget {
   final String? initialContent;
+  final ApiService? api;
 
-  const ScannerScreen({super.key, this.initialContent});
+  const ScannerScreen({
+    super.key,
+    this.initialContent,
+    this.api,
+  });
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -18,7 +24,12 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen> {
   String? _ultimoConteudo;
+  PatrimonioModel? _ativoSelecionado;
   bool _mostrarJsonBruto = false;
+  bool _carregandoAtivos = false;
+  String? _erroAtivos;
+  List<PatrimonioModel> _ativos = const [];
+
   final TextEditingController _pesquisaController = TextEditingController();
   String _filtroPesquisa = '';
 
@@ -26,6 +37,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void initState() {
     super.initState();
     _ultimoConteudo = widget.initialContent;
+    if (widget.initialContent != null) {
+      _ativoSelecionado = PatrimonioModel.tryParse(widget.initialContent!);
+    }
+
+    if (widget.api != null && widget.api!.isAutenticado) {
+      _carregarAtivosApi();
+    } else {
+      _ativos = PatrimonioModel.exemplos;
+    }
   }
 
   @override
@@ -34,43 +54,90 @@ class _ScannerScreenState extends State<ScannerScreen> {
     super.dispose();
   }
 
-  Future<void> _abrirLeitor() async {
-    // Abre a câmera QRScannerPage e aguarda a leitura
-    final resultado = await Navigator.push<String>(
+  Future<void> _carregarAtivosApi() async {
+    final api = widget.api;
+    if (api == null) return;
+
+    setState(() {
+      _carregandoAtivos = true;
+      _erroAtivos = null;
+    });
+
+    try {
+      final lista = await api.listarAtivos();
+      if (!mounted) return;
+      setState(() {
+        _ativos = lista;
+        _carregandoAtivos = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erroAtivos = e.mensagem;
+        _carregandoAtivos = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _erroAtivos = 'Erro ao carregar ativos: $e';
+        _carregandoAtivos = false;
+      });
+    }
+  }
+
+  Future<void> _abrirLeitor({PatrimonioModel? ativoInicial}) async {
+    final resultado = await Navigator.push<dynamic>(
       context,
-      MaterialPageRoute(builder: (_) => const QRScannerPage()),
+      MaterialPageRoute(
+        builder: (_) => QRScannerPage(
+          api: widget.api,
+          ativoInicial: ativoInicial,
+        ),
+      ),
     );
 
-    if (!mounted) return;
+    if (!mounted || resultado == null) return;
 
-    if (resultado != null && resultado.isNotEmpty) {
+    if (resultado is PatrimonioModel) {
       setState(() {
-        _ultimoConteudo = resultado;
+        _ativoSelecionado = resultado;
+        _ultimoConteudo =
+            const JsonEncoder.withIndent('    ').convert(resultado.toJson());
         _mostrarJsonBruto = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text('QR Code lido com sucesso!'),
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Ativo validado: ${resultado.nome}'),
+              ),
             ],
           ),
           backgroundColor: AppColors.mainColor,
         ),
       );
+    } else if (resultado is String && resultado.isNotEmpty) {
+      setState(() {
+        _ultimoConteudo = resultado;
+        _ativoSelecionado = PatrimonioModel.tryParse(resultado);
+        _mostrarJsonBruto = false;
+      });
     }
   }
 
-  void _carregarExemplo(PatrimonioModel item) {
+  void _selecionarAtivo(PatrimonioModel item) {
     setState(() {
-      _ultimoConteudo = const JsonEncoder.withIndent('    ').convert(item.toJson());
+      _ativoSelecionado = item;
+      _ultimoConteudo =
+          const JsonEncoder.withIndent('    ').convert(item.toJson());
       _mostrarJsonBruto = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Patrimônio carregado: ${item.patrimonio} (${item.nome})'),
+        content: Text('Patrimônio carregado: ${item.codigoQr} (${item.nome})'),
         backgroundColor: AppColors.mainColor,
       ),
     );
@@ -78,9 +145,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final itemPatrimonio = _ultimoConteudo != null
-        ? PatrimonioModel.tryParse(_ultimoConteudo!)
-        : null;
+    final itemPatrimonio = _ativoSelecionado ??
+        (_ultimoConteudo != null
+            ? PatrimonioModel.tryParse(_ultimoConteudo!)
+            : null);
 
     return Scaffold(
       backgroundColor: AppColors.backgroundColor,
@@ -88,27 +156,36 @@ class _ScannerScreenState extends State<ScannerScreen> {
         title: const Text('Leitor de Patrimônio'),
         leading: IconButton(
           tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textOnMain),
+          icon:
+              const Icon(Icons.arrow_back_rounded, color: AppColors.textOnMain),
           onPressed: () {
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
             } else {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (_) => const TelaHome()),
+                MaterialPageRoute(builder: (_) => TelaHome(api: widget.api)),
               );
             }
           },
         ),
         actions: [
-          if (_ultimoConteudo != null)
+          if (widget.api != null && widget.api!.isAutenticado)
+            IconButton(
+              tooltip: 'Atualizar ativos',
+              onPressed: _carregandoAtivos ? null : _carregarAtivosApi,
+              icon: const Icon(Icons.sync_rounded, color: AppColors.textOnMain),
+            ),
+          if (_ultimoConteudo != null || _ativoSelecionado != null)
             IconButton(
               tooltip: 'Limpar leitura',
               onPressed: () => setState(() {
                 _ultimoConteudo = null;
+                _ativoSelecionado = null;
                 _mostrarJsonBruto = false;
               }),
-              icon: const Icon(Icons.refresh_rounded, color: AppColors.textOnMain),
+              icon: const Icon(Icons.refresh_rounded,
+                  color: AppColors.textOnMain),
             ),
         ],
       ),
@@ -119,7 +196,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Área de exibição do resultado lido
-              if (_ultimoConteudo == null)
+              if (_ultimoConteudo == null && itemPatrimonio == null)
                 _buildEmptyState()
               else if (itemPatrimonio != null)
                 _buildPatrimonioCard(itemPatrimonio)
@@ -142,10 +219,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         ),
                         elevation: 2,
                       ),
-                      onPressed: _abrirLeitor,
+                      onPressed: () => _abrirLeitor(),
                       icon: const Icon(Icons.qr_code_scanner_rounded),
                       label: Text(
-                        _ultimoConteudo == null
+                        itemPatrimonio == null && _ultimoConteudo == null
                             ? 'Abrir Câmera'
                             : 'Escanear Novamente',
                         style: const TextStyle(
@@ -172,7 +249,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
                           if (!mounted) return;
                           messenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Copiado para a área de transferência'),
+                              content:
+                                  Text('Copiado para a área de transferência'),
                             ),
                           );
                         },
@@ -188,7 +266,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
               const SizedBox(height: 16),
 
-              // Seção de pesquisa e listagem de patrimônios (dados.json)
+              // Seção de pesquisa e listagem de patrimônios (API ou exemplos)
               _buildSecaoPesquisaPatrimonios(itemPatrimonio),
             ],
           ),
@@ -246,8 +324,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
   }
 
-  /// Card formatado com os dados amigáveis do JSON de patrimônio (dados.json)
+  /// Card formatado com os dados do ativo (AtivoSerializer ou dados.json)
   Widget _buildPatrimonioCard(PatrimonioModel item) {
+    final statusCor =
+        item.isAtivo ? AppColors.statusAtivo : AppColors.statusInativo;
+    final statusFundo = item.isAtivo
+        ? AppColors.statusAtivoFundo
+        : AppColors.statusInativoFundo;
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.fundoCardsClaro,
@@ -280,8 +364,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     color: AppColors.mainColor,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(
-                    Icons.devices_rounded,
+                  child: Icon(
+                    item.possuiModelo3d
+                        ? Icons.view_in_ar_rounded
+                        : Icons.devices_rounded,
                     color: AppColors.textOnMain,
                     size: 26,
                   ),
@@ -308,9 +394,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: AppColors.statusAtivoFundo,
+                              color: statusFundo,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.statusAtivo),
+                              border: Border.all(color: statusCor),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -318,23 +404,46 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                 Container(
                                   width: 7,
                                   height: 7,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.statusAtivo,
+                                  decoration: BoxDecoration(
+                                    color: statusCor,
                                     shape: BoxShape.circle,
                                   ),
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  item.status.isNotEmpty ? item.status : 'Ativo',
-                                  style: const TextStyle(
+                                  item.status.isNotEmpty
+                                      ? item.status
+                                      : 'Ativo',
+                                  style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.statusAtivo,
+                                    color: statusCor,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                          if (item.possuiModelo3d) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                '3D Disponível',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.mainColorDark,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],
@@ -344,99 +453,88 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
 
-          // Lista de campos detalhados com nomes amigáveis
+          // Lista de campos detalhados
           Padding(
             padding: const EdgeInsets.all(18),
             child: Column(
               children: [
                 _buildInfoRow(
                   icon: Icons.tag_rounded,
-                  label: 'Patrimônio',
-                  value: item.patrimonio,
+                  label: item.idAtivos != null ? 'QR Code' : 'Patrimônio',
+                  value: item.codigoQr,
                   isHighlight: true,
                 ),
+                if (item.idAtivos != null) ...[
+                  const Divider(color: AppColors.borderCard, height: 20),
+                  _buildInfoRow(
+                    icon: Icons.numbers_rounded,
+                    label: 'ID do Ativo',
+                    value: '#${item.idAtivos}',
+                  ),
+                ],
                 const Divider(color: AppColors.borderCard, height: 20),
                 _buildInfoRow(
                   icon: Icons.meeting_room_outlined,
                   label: 'Origem',
-                  value: item.origem,
+                  value: item.salaOrigemNome,
                 ),
                 const Divider(color: AppColors.borderCard, height: 20),
                 _buildInfoRow(
                   icon: Icons.location_on_rounded,
                   label: 'Local Atual',
-                  value: item.localAtual,
+                  value: item.salaAtualNome,
                   valueColor: AppColors.mainColorDark,
                 ),
-                const Divider(color: AppColors.borderCard, height: 20),
-                _buildInfoRow(
-                  icon: Icons.person_outline_rounded,
-                  label: 'Responsável',
-                  value: item.responsavel,
-                ),
-                const Divider(color: AppColors.borderCard, height: 20),
-                _buildInfoRow(
-                  icon: Icons.calendar_month_rounded,
-                  label: 'Última Manutenção',
-                  value: item.manutencao,
-                ),
-              ],
-            ),
-          ),
-
-          // Seção expansível para ver o JSON original
-          Padding(
-            padding: const EdgeInsets.only(left: 18, right: 18, bottom: 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    setState(() {
-                      _mostrarJsonBruto = !_mostrarJsonBruto;
-                    });
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _mostrarJsonBruto
-                              ? Icons.keyboard_arrow_up_rounded
-                              : Icons.code_rounded,
-                          color: AppColors.mainColor,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _mostrarJsonBruto ? 'Ocultar JSON' : 'Ver JSON Bruto',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.mainColor,
-                          ),
-                        ),
-                      ],
-                    ),
+                if (item.grupoNome.isNotEmpty) ...[
+                  const Divider(color: AppColors.borderCard, height: 20),
+                  _buildInfoRow(
+                    icon: Icons.category_rounded,
+                    label: 'Grupo',
+                    value: item.grupoNome,
                   ),
-                ),
-                if (_mostrarJsonBruto) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.borderCard),
-                    ),
-                    child: SelectableText(
-                      _ultimoConteudo!,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: AppColors.textPrimary,
+                ],
+                if (item.responsavel.isNotEmpty || item.idAtivos == null) ...[
+                  const Divider(color: AppColors.borderCard, height: 20),
+                  _buildInfoRow(
+                    icon: Icons.person_outline_rounded,
+                    label: 'Responsável',
+                    value: item.responsavel,
+                  ),
+                ],
+                if (item.descricao.isNotEmpty) ...[
+                  const Divider(color: AppColors.borderCard, height: 20),
+                  _buildInfoRow(
+                    icon: Icons.notes_rounded,
+                    label: 'Descrição',
+                    value: item.descricao,
+                  ),
+                ],
+                if (item.manutencao.isNotEmpty || item.idAtivos == null) ...[
+                  const Divider(color: AppColors.borderCard, height: 20),
+                  _buildInfoRow(
+                    icon: Icons.calendar_month_rounded,
+                    label: 'Última Manutenção',
+                    value: item.manutencao,
+                  ),
+                ],
+                if (item.possuiModelo3d) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.mainColorDark,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => _abrirLeitor(ativoInicial: item),
+                      icon: const Icon(Icons.view_in_ar_rounded),
+                      label: const Text(
+                        'Visualizar Modelo 3D na Câmera',
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -444,6 +542,70 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ],
             ),
           ),
+
+          // Seção expansível para ver o JSON original
+          if (_ultimoConteudo != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 18, right: 18, bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () {
+                      setState(() {
+                        _mostrarJsonBruto = !_mostrarJsonBruto;
+                      });
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _mostrarJsonBruto
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.code_rounded,
+                            color: AppColors.mainColor,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _mostrarJsonBruto
+                                ? 'Ocultar JSON'
+                                : 'Ver JSON Bruto',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.mainColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_mostrarJsonBruto) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.borderCard),
+                      ),
+                      child: SelectableText(
+                        _ultimoConteudo!,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -544,12 +706,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
   }
 
-  /// Seção de pesquisa e listagem de patrimônios (baseado em dados.json)
+  /// Seção de pesquisa e listagem de patrimônios (API `/api/ativos/` ou exemplos locais)
   Widget _buildSecaoPesquisaPatrimonios(PatrimonioModel? itemSelecionado) {
     final termo = _filtroPesquisa.trim().toLowerCase();
-    final itensFiltrados = PatrimonioModel.exemplos.where((item) {
+    final itensFiltrados = _ativos.where((item) {
       if (termo.isEmpty) return true;
-      return item.patrimonio.toLowerCase().contains(termo);
+      return item.codigoQr.toLowerCase().contains(termo) ||
+          item.patrimonio.toLowerCase().contains(termo) ||
+          item.nome.toLowerCase().contains(termo) ||
+          item.salaAtualNome.toLowerCase().contains(termo) ||
+          item.grupoNome.toLowerCase().contains(termo);
     }).toList();
 
     return Container(
@@ -598,7 +764,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                     ),
                     Text(
-                      'Pesquise pelo código ou selecione um item na lista',
+                      'Pesquise pelo código, nome ou selecione um ativo da lista',
                       style: TextStyle(
                         fontSize: 11,
                         color: AppColors.textSecondary,
@@ -611,7 +777,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Campo de busca pelo número do patrimônio
+          // Campo de busca
           TextField(
             controller: _pesquisaController,
             keyboardType: TextInputType.text,
@@ -669,8 +835,41 @@ class _ScannerScreenState extends State<ScannerScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Lista de patrimônios filtrados
-          if (itensFiltrados.isEmpty)
+          if (_carregandoAtivos)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: CircularProgressIndicator(color: AppColors.mainColor),
+              ),
+            )
+          else if (_erroAtivos != null)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.statusInativoFundo,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderCard),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    _erroAtivos!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.statusInativo,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _carregarAtivosApi,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Tentar novamente'),
+                  ),
+                ],
+              ),
+            )
+          else if (itensFiltrados.isEmpty)
             Container(
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
               alignment: Alignment.center,
@@ -703,10 +902,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
               itemBuilder: (context, index) {
                 final item = itensFiltrados[index];
                 final bool isSelected =
-                    itemSelecionado?.patrimonio == item.patrimonio;
+                    itemSelecionado?.codigoQr == item.codigoQr &&
+                        item.codigoQr.isNotEmpty;
 
                 return InkWell(
-                  onTap: () => _carregarExemplo(item),
+                  onTap: () => _selecionarAtivo(item),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.all(12),
@@ -733,7 +933,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
-                            Icons.devices_rounded,
+                            item.possuiModelo3d
+                                ? Icons.view_in_ar_rounded
+                                : Icons.devices_rounded,
                             color: isSelected
                                 ? AppColors.textOnMain
                                 : AppColors.mainColorDark,
@@ -747,38 +949,45 @@ class _ScannerScreenState extends State<ScannerScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? AppColors.mainColor.withValues(alpha: 0.15)
-                                          : AppColors.fundoCardsClaro,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
                                         color: isSelected
                                             ? AppColors.mainColor
-                                            : AppColors.borderCard,
+                                                .withValues(alpha: 0.15)
+                                            : AppColors.fundoCardsClaro,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? AppColors.mainColor
+                                              : AppColors.borderCard,
+                                        ),
                                       ),
-                                    ),
-                                    child: Text(
-                                      'Patrimônio: ${item.patrimonio}',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.mainColorDark,
+                                      child: Text(
+                                        'Patrimônio: ${item.codigoQr}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.mainColorDark,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                   ),
-                                  const Spacer(),
+                                  const SizedBox(width: 8),
                                   Text(
                                     item.status,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
-                                      color: AppColors.statusAtivo,
+                                      color: item.isAtivo
+                                          ? AppColors.statusAtivo
+                                          : AppColors.statusInativo,
                                     ),
                                   ),
                                 ],
@@ -794,7 +1003,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Local: ${item.localAtual} • Resp: ${item.responsavel}',
+                                item.grupoNome.isNotEmpty
+                                    ? 'Sala: ${item.salaAtualNome} • Grupo: ${item.grupoNome}'
+                                    : 'Local: ${item.salaAtualNome} • Resp: ${item.responsavel}',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: AppColors.textSecondary,

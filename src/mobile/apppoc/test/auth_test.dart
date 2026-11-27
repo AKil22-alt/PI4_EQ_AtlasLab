@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:apppoc/screen/Home.dart';
 import 'package:apppoc/screen/cadastro_screen.dart';
@@ -10,6 +11,10 @@ import 'package:apppoc/screen/login_screen.dart';
 import 'package:apppoc/services/api_service.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   group('ApiService Tests', () {
     test('cadastrar envia payload correto para auth/cadastro/ e retorna mensagem de sucesso', () async {
       final mockClient = MockClient((request) async {
@@ -127,6 +132,156 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('extrai erros do DRF na ordem senha[0], email[0], nome[0], erro, detail, mensagem', () async {
+      final mockClient = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'mensagem': 'Msg genérica',
+            'detail': 'Detalhe genérico',
+            'erro': 'Erro genérico',
+            'nome': ['Erro no nome'],
+            'email': ['Erro no email'],
+            'senha': ['A senha deve ter no mínimo 8 caracteres.'],
+          }),
+          400,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+
+      final api = ApiService(baseUrl: 'http://teste/api', client: mockClient);
+
+      expect(
+        () => api.cadastrar(nome: 'Ana', email: 'ana@test.com', senha: '123'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.mensagem,
+            'mensagem',
+            'A senha deve ter no mínimo 8 caracteres.',
+          ),
+        ),
+      );
+    });
+
+    test('restaurarSessao valida token salvo via GET /api/auth/me/ e logout limpa sessão', () async {
+      SharedPreferences.setMockInitialValues({
+        'atlaslab_token': 'token-salvo-999',
+        'atlaslab_usuario': jsonEncode({'nome': 'Antigo'}),
+      });
+
+      var logoutChamado = false;
+      final mockClient = MockClient((request) async {
+        expect(request.headers['Authorization'], 'Token token-salvo-999');
+        if (request.url.path == '/api/auth/me/' && request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'id_user': 7,
+              'nome': 'Carlos Técnico',
+              'email': 'carlos@atlaslab.local',
+              'cargo': 'TEC',
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path == '/api/auth/logout/' &&
+            request.method == 'POST') {
+          logoutChamado = true;
+          return http.Response('', 204);
+        }
+        return http.Response('Not Found', 404);
+      });
+
+      final api = ApiService(baseUrl: 'http://teste/api', client: mockClient);
+      final restaurado = await api.restaurarSessao();
+
+      expect(restaurado, isTrue);
+      expect(api.isAutenticado, isTrue);
+      expect(api.usuarioLogado?['nome'], 'Carlos Técnico');
+
+      await api.logout();
+      expect(logoutChamado, isTrue);
+      expect(api.isAutenticado, isFalse);
+      expect(api.token, isNull);
+    });
+
+    test('listarAtivos percorre paginação DRF e buscarAtivoPorQrCode encontra por qr_code ou id_ativos', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/api/ativos/') {
+          expect(request.headers['Authorization'], 'Token tk-ativos');
+          final page = request.url.queryParameters['page'] ?? '1';
+          if (page == '1') {
+            return http.Response(
+              jsonEncode({
+                'count': 2,
+                'next': 'http://teste/api/ativos/?page=2',
+                'results': [
+                  {
+                    'id_ativos': 1,
+                    'nome': 'Monitor Dell 24',
+                    'qr_code': 'ATLASLAB-AAA111',
+                    'status': true,
+                    'descricao': 'Monitor Full HD',
+                    'local_origem_detalhes': {'id_sala': 1, 'nome': 'Lab A'},
+                    'local_atual_detalhes': {'id_sala': 2, 'nome': 'Lab B-101'},
+                    'grupo_detalhes': {'id_grupo_a': 1, 'nome': 'Periféricos'},
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'count': 2,
+              'next': null,
+              'results': [
+                {
+                  'id_ativos': 2,
+                  'nome': 'Computador Workstation',
+                  'qr_code': 'ATLASLAB-BBB222',
+                  'status': false,
+                  'descricao': 'PC de bancada',
+                  'local_origem_detalhes': {'id_sala': 1, 'nome': 'Lab A'},
+                  'local_atual_detalhes': {'id_sala': 3, 'nome': 'Lab C-202'},
+                  'grupo_detalhes': {'id_grupo_a': 2, 'nome': 'Computadores'},
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'token': 'tk-ativos',
+            'usuario': {'id_user': 1, 'nome': 'Admin', 'cargo': 'ADM'},
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+
+      final api = ApiService(baseUrl: 'http://teste/api', client: mockClient);
+      await api.login('admin@atlaslab.local', '12345678');
+
+      final encontradoQr =
+          await api.buscarAtivoPorQrCode('ATLASLAB-BBB222');
+      expect(encontradoQr, isNotNull);
+      expect(encontradoQr!.nome, 'Computador Workstation');
+      expect(encontradoQr.salaAtualNome, 'Lab C-202');
+      expect(encontradoQr.grupoNome, 'Computadores');
+      expect(encontradoQr.modelo3dAsset, 'assets/models3d/computador.glb');
+
+      final encontradoId = await api.buscarAtivoPorQrCode('1');
+      expect(encontradoId, isNotNull);
+      expect(encontradoId!.nome, 'Monitor Dell 24');
+      expect(encontradoId.modelo3dAsset, 'assets/models3d/monitor.glb');
+
+      final naoEncontrado = await api.buscarAtivoPorQrCode('INEXISTENTE');
+      expect(naoEncontrado, isNull);
     });
   });
 

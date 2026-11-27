@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 
 class LoginScreen extends StatefulWidget {
   final ApiService? api;
-  const LoginScreen({super.key, this.api});
+  final String? initialEmail;
+  const LoginScreen({super.key, this.api, this.initialEmail});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -25,6 +26,9 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _api = widget.api ?? ApiService();
+    if (widget.initialEmail != null && widget.initialEmail!.isNotEmpty) {
+      _email.text = widget.initialEmail!;
+    }
   }
 
   @override
@@ -115,7 +119,7 @@ class _LoginScreenState extends State<LoginScreen> {
             right: 0,
             height: screenHeight * 1.16,
             child: Image.asset(
-              'assets/splash.png',
+              'assets/images/splash.png',
               fit: BoxFit.cover,
               alignment: Alignment.topCenter,
               filterQuality: FilterQuality.high,
@@ -135,7 +139,7 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 // Imagem da onda / retângulo inferior
                 Image.asset(
-                  'assets/rectangle_splash.png',
+                  'assets/images/rectangle_splash.png',
                   fit: BoxFit.fill,
                   filterQuality: FilterQuality.high,
                 ),
@@ -433,7 +437,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   child: Image.asset(
-                    'assets/logo.png',
+                    'assets/images/logo.png',
                     fit: BoxFit.contain,
                   ),
                 ),

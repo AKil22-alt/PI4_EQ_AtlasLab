@@ -3,7 +3,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:apppoc/models/patrimonio_model.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiException implements Exception {
   final int? statusCode;
@@ -16,11 +19,14 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  /// URL padrão para conexão com a API Django:
-  /// - Dispositivo físico (mesma rede): 'http://10.109.84.20:8000/api/'
-  /// - Emulador Android padrão: 'http://10.0.2.2:8000/api/'
-  /// - Web / Windows / Testes: 'http://127.0.0.1:8000/api/'
-  static String baseUrl = 'http://127.0.0.1:8000/api/';
+  /// URL base centralizada do backend Django REST Framework.
+  /// - Local / Emulador ou dispositivo Android via `adb reverse tcp:8000 tcp:8000`:
+  ///   'http://127.0.0.1:8000/api'
+  static const String defaultBaseUrl = 'http://127.0.0.1:8000/api';
+  static String baseUrl = defaultBaseUrl;
+
+  static const String _tokenStorageKey = 'atlaslab_token';
+  static const String _usuarioStorageKey = 'atlaslab_usuario';
 
   final String? _instanceBaseUrl;
   final http.Client _client;
@@ -35,22 +41,85 @@ class ApiService {
         _client = client ?? http.Client();
 
   String get activeBaseUrl {
-    final url = _instanceBaseUrl ?? ApiService.baseUrl;
-    return url.endsWith('/') ? url : '$url/';
+    final raw = (_instanceBaseUrl ?? ApiService.baseUrl).trim();
+    return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
   }
 
   String? get token => _token;
   Map<String, dynamic>? get usuarioLogado => _usuarioLogado;
-  bool get isAutenticado => _token != null;
+  bool get isAutenticado => _token != null && _token!.isNotEmpty;
 
   String _url(String caminho) {
     final base = activeBaseUrl;
     final path = caminho.startsWith('/') ? caminho.substring(1) : caminho;
-    return '$base$path';
+    return '$base/$path';
   }
 
-  /// Realiza o login enviando email e senha para /api/auth/login/.
-  /// Retorna o mapa contendo token e dados do usuário.
+  Future<void> _salvarSessaoLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_token != null && _token!.isNotEmpty) {
+        await prefs.setString(_tokenStorageKey, _token!);
+      } else {
+        await prefs.remove(_tokenStorageKey);
+      }
+
+      if (_usuarioLogado != null) {
+        await prefs.setString(_usuarioStorageKey, jsonEncode(_usuarioLogado));
+      } else {
+        await prefs.remove(_usuarioStorageKey);
+      }
+    } catch (_) {
+      // Ignora falhas de storage em ambientes de teste sem canal nativo
+    }
+  }
+
+  Future<void> _limparSessaoLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_tokenStorageKey);
+      await prefs.remove(_usuarioStorageKey);
+    } catch (_) {
+      // Ignora falhas de storage em ambientes de teste sem canal nativo
+    }
+  }
+
+  /// Restaura token/usuário do armazenamento local e valida a sessão via `GET /api/auth/me/`.
+  Future<bool> restaurarSessao() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tokenSalvo = prefs.getString(_tokenStorageKey);
+      if (tokenSalvo == null || tokenSalvo.trim().isEmpty) {
+        return false;
+      }
+
+      _token = tokenSalvo.trim();
+      final usuarioJson = prefs.getString(_usuarioStorageKey);
+      if (usuarioJson != null && usuarioJson.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(usuarioJson);
+          if (decoded is Map) {
+            _usuarioLogado = Map<String, dynamic>.from(decoded);
+          }
+        } catch (_) {}
+      }
+
+      await obterUsuarioAtual();
+      return true;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        _token = null;
+        _usuarioLogado = null;
+        await _limparSessaoLocal();
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Realiza o login enviando email e senha para `POST /api/auth/login/`.
+  /// Salva o token e dados do usuário localmente em `SharedPreferences`.
   Future<Map<String, dynamic>> login(String email, String senha) async {
     try {
       final resposta = await _client.post(
@@ -66,9 +135,10 @@ class ApiService {
 
       if (resposta.statusCode == 200 && corpo is Map<String, dynamic>) {
         _token = corpo['token'] as String?;
-        _usuarioLogado = corpo['usuario'] is Map<String, dynamic>
+        _usuarioLogado = corpo['usuario'] is Map
             ? Map<String, dynamic>.from(corpo['usuario'] as Map)
             : null;
+        await _salvarSessaoLocal();
         return corpo;
       }
 
@@ -85,8 +155,8 @@ class ApiService {
     }
   }
 
-  /// Envia os dados para a fila de aprovação de cadastro em /api/auth/cadastro/.
-  /// O backend armazena em SolicitacaoCadastro e aguarda aprovação pelo administrador.
+  /// Envia solicitação de cadastro para `POST /api/auth/cadastro/`.
+  /// O backend cria uma `SolicitacaoCadastro` pendente para aprovação no painel web.
   Future<String> cadastrar({
     required String nome,
     required String email,
@@ -105,11 +175,11 @@ class ApiService {
 
       final corpo = _decodificarCorpo(resposta);
 
-      if (resposta.statusCode == 201) {
+      if (resposta.statusCode == 201 || resposta.statusCode == 200) {
         if (corpo is Map && corpo['detail'] != null) {
           return corpo['detail'].toString();
         }
-        return 'Cadastro enviado. Aguarde a aprovação do administrador.';
+        return 'Solicitação enviada! Aguarde a aprovação de um administrador no painel web para acessar o app.';
       }
 
       final mensagem = _extrairMensagemErro(corpo, resposta.statusCode);
@@ -133,9 +203,9 @@ class ApiService {
   }) =>
       cadastrar(nome: nome, email: email, senha: senha);
 
-  /// Encerra a sessão no backend e limpa o token local
+  /// Encerra a sessão no backend (`POST /api/auth/logout/`) e limpa o token local
   Future<void> logout() async {
-    if (_token != null) {
+    if (_token != null && _token!.isNotEmpty) {
       try {
         await _client.post(
           Uri.parse(_url('auth/logout/')),
@@ -148,18 +218,97 @@ class ApiService {
     }
     _token = null;
     _usuarioLogado = null;
+    await _limparSessaoLocal();
   }
 
-  /// Obtém os dados do usuário autenticado a partir de /api/auth/me/
+  /// Obtém e valida os dados do usuário autenticado a partir de `GET /api/auth/me/`
   Future<Map<String, dynamic>> obterUsuarioAtual() async {
     final resp = await _enviar('GET', 'auth/me/');
     final dados =
         jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     _usuarioLogado = dados;
+    await _salvarSessaoLocal();
     return dados;
   }
 
-  /// Envia requisições autenticadas para os endpoints da API
+  /// Lista todos os ativos em `GET /api/ativos/`, percorrendo páginas DRF (`results`/`next`)
+  /// ou tratando resposta em formato `List`.
+  Future<List<PatrimonioModel>> listarAtivos({String? search}) async {
+    final ativos = <PatrimonioModel>[];
+    var page = 1;
+    var hasNext = true;
+
+    while (hasNext && page <= 200) {
+      final queryParams = <String, String>{
+        'page': '$page',
+        if (search != null && search.trim().isNotEmpty)
+          'search': search.trim(),
+      };
+      final query = Uri(queryParameters: queryParams).query;
+      final resp = await _enviar('GET', 'ativos/?$query');
+      final corpo = _decodificarCorpo(resp);
+
+      if (corpo is List) {
+        for (final item in corpo) {
+          if (item is Map) {
+            ativos.add(
+              PatrimonioModel.fromJson(Map<String, dynamic>.from(item)),
+            );
+          }
+        }
+        hasNext = false;
+      } else if (corpo is Map) {
+        final results = corpo['results'];
+        if (results is List) {
+          for (final item in results) {
+            if (item is Map) {
+              ativos.add(
+                PatrimonioModel.fromJson(Map<String, dynamic>.from(item)),
+              );
+            }
+          }
+        }
+        final next = corpo['next'];
+        hasNext = next != null && next.toString().trim().isNotEmpty;
+        page += 1;
+      } else {
+        hasNext = false;
+      }
+    }
+
+    return ativos;
+  }
+
+  /// Consulta `GET /api/ativos/` (percorrendo páginas se necessário) e localiza o ativo
+  /// cujo `qr_code` (ou `id_ativos` como fallback) corresponda ao código lido.
+  Future<PatrimonioModel?> buscarAtivoPorQrCode(String codigoLido) async {
+    final codigoNormalizado =
+        PatrimonioModel.extrairCodigoDeLeitura(codigoLido).trim();
+    if (codigoNormalizado.isEmpty) return null;
+
+    final ativos = await listarAtivos();
+    final codigoLower = codigoNormalizado.toLowerCase();
+
+    for (final ativo in ativos) {
+      if (ativo.qrCode.trim().toLowerCase() == codigoLower) {
+        return ativo;
+      }
+    }
+
+    for (final ativo in ativos) {
+      if (ativo.idAtivos != null &&
+          ativo.idAtivos.toString() == codigoNormalizado) {
+        return ativo;
+      }
+      if (ativo.patrimonio.trim().toLowerCase() == codigoLower) {
+        return ativo;
+      }
+    }
+
+    return null;
+  }
+
+  /// Envia requisições autenticadas para os endpoints da API com `Authorization: Token <token>`
   Future<http.Response> _enviar(
     String metodo,
     String caminho, {
@@ -168,7 +317,8 @@ class ApiService {
     final uri = Uri.parse(_url(caminho));
     final headers = <String, String>{
       'Content-Type': 'application/json',
-      if (_token != null) 'Authorization': 'Token $_token',
+      if (_token != null && _token!.isNotEmpty)
+        'Authorization': 'Token $_token',
     };
     final corpo = dados == null ? null : jsonEncode(dados);
 
@@ -221,34 +371,42 @@ class ApiService {
     }
   }
 
+  String? _primeiroValor(dynamic campo) {
+    if (campo == null) return null;
+    if (campo is List) {
+      if (campo.isEmpty) return null;
+      return campo.first.toString();
+    }
+    return campo.toString();
+  }
+
+  /// Inspeciona mensagens de erro de validação do DRF na ordem:
+  /// `senha[0]`, `email[0]`, `nome[0]`, `erro`, `detail`, `mensagem`.
   String _extrairMensagemErro(dynamic corpo, int statusCode) {
     if (corpo is Map) {
-      if (corpo['detail'] != null) {
-        return corpo['detail'].toString();
-      }
-      if (corpo['email'] != null) {
-        final val = corpo['email'];
-        return val is List ? val.first.toString() : val.toString();
-      }
-      if (corpo['senha'] != null) {
-        final val = corpo['senha'];
-        return val is List ? val.first.toString() : val.toString();
-      }
-      if (corpo['nome'] != null) {
-        final val = corpo['nome'];
-        return val is List ? val.first.toString() : val.toString();
-      }
-      if (corpo['non_field_errors'] != null) {
-        final val = corpo['non_field_errors'];
-        return val is List ? val.first.toString() : val.toString();
-      }
-      if (corpo['mensagem'] != null) {
-        return corpo['mensagem'].toString();
-      }
-      if (corpo['erro'] != null) {
+      final senhaErro = _primeiroValor(corpo['senha']);
+      if (senhaErro != null && senhaErro.isNotEmpty) return senhaErro;
+
+      final emailErro = _primeiroValor(corpo['email']);
+      if (emailErro != null && emailErro.isNotEmpty) return emailErro;
+
+      final nomeErro = _primeiroValor(corpo['nome']);
+      if (nomeErro != null && nomeErro.isNotEmpty) return nomeErro;
+
+      if (corpo['erro'] != null && corpo['erro'].toString().isNotEmpty) {
         return corpo['erro'].toString();
       }
+      if (corpo['detail'] != null && corpo['detail'].toString().isNotEmpty) {
+        return corpo['detail'].toString();
+      }
+      if (corpo['mensagem'] != null &&
+          corpo['mensagem'].toString().isNotEmpty) {
+        return corpo['mensagem'].toString();
+      }
+      final nonField = _primeiroValor(corpo['non_field_errors']);
+      if (nonField != null && nonField.isNotEmpty) return nonField;
     }
+
     if (statusCode == 401) {
       return 'E-mail ou senha inválidos.';
     }

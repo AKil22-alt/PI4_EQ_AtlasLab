@@ -1,3 +1,4 @@
+import 'package:apppoc/screen/login_screen.dart';
 import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
 import 'package:flutter/material.dart';
@@ -42,17 +43,18 @@ class _CadastroScreenState extends State<CadastroScreen> {
     setState(() => _carregando = true);
 
     try {
+      final emailNormalizado = _email.text.trim().toLowerCase();
       // Envia a solicitação de cadastro para o backend (será armazenada como SolicitacaoCadastro)
       final mensagem = await _api.cadastrar(
         nome: _nome.text.trim(),
-        email: _email.text.trim(),
+        email: emailNormalizado,
         senha: _senha.text,
       );
 
       if (!mounted) return;
       setState(() => _carregando = false);
 
-      // Exibe diálogo informando com clareza que o cadastro foi enviado para aprovação
+      // Exibe diálogo informando com clareza que o cadastro foi enviado para aprovação no painel web
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -76,15 +78,30 @@ class _CadastroScreenState extends State<CadastroScreen> {
               ),
             ],
           ),
-          content: Text(
-            mensagem.isNotEmpty
-                ? mensagem
-                : 'Cadastro enviado com sucesso! Aguarde a aprovação do administrador para liberar o seu acesso.',
-            style: const TextStyle(
-              fontSize: 15,
-              color: AppColors.textPrimary,
-              height: 1.4,
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                mensagem.isNotEmpty
+                    ? mensagem
+                    : 'Solicitação enviada! Aguarde a aprovação de um administrador no painel web para acessar o app.',
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: AppColors.textPrimary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Um administrador precisa aprovar seu pedido na aba "Solicitações de entrada" do painel web antes do seu primeiro login.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ),
           actions: [
             ElevatedButton(
@@ -103,8 +120,20 @@ class _CadastroScreenState extends State<CadastroScreen> {
       );
 
       if (!mounted) return;
-      // Retorna para a tela anterior (Login) passando o e-mail cadastrado
-      Navigator.pop(context, _email.text.trim());
+      // Redireciona para a tela de Login sem tentar login automático
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context, emailNormalizado);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LoginScreen(
+              api: _api,
+              initialEmail: emailNormalizado,
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         final mensagemErro =
@@ -147,7 +176,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
             right: 0,
             height: screenHeight * 1.16,
             child: Image.asset(
-              'assets/splash.png',
+              'assets/images/splash.png',
               fit: BoxFit.cover,
               alignment: Alignment.topCenter,
               filterQuality: FilterQuality.high,
@@ -167,7 +196,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
               children: [
                 // Imagem de fundo da onda
                 Image.asset(
-                  'assets/rectangle_splash.png',
+                  'assets/images/rectangle_splash.png',
                   fit: BoxFit.fill,
                   filterQuality: FilterQuality.high,
                 ),
@@ -598,7 +627,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
                     ],
                   ),
                   child: Image.asset(
-                    'assets/logo.png',
+                    'assets/images/logo.png',
                     fit: BoxFit.contain,
                   ),
                 ),

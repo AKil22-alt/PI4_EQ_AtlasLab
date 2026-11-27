@@ -1,3 +1,4 @@
+import 'package:apppoc/screen/Home.dart';
 import 'package:apppoc/screen/login_screen.dart';
 import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
@@ -19,6 +20,22 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     _api = widget.api ?? ApiService();
+    _verificarSessaoSalva();
+  }
+
+  Future<void> _verificarSessaoSalva() async {
+    final sessaoValida = await _api.restaurarSessao();
+    if (!mounted || !sessaoValida) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TelaHome(
+          nomeUsuario: _api.usuarioLogado?['nome'] as String?,
+          api: _api,
+        ),
+      ),
+    );
   }
 
   void _onScreenTapped() {
@@ -45,7 +62,7 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             // Imagem de fundo splash (tela cheia)
             Image.asset(
-              'assets/splash.png',
+              'assets/images/splash.png',
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,
@@ -67,7 +84,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   children: [
                     // Imagem da onda / retângulo inferior
                     Image.asset(
-                      'assets/rectangle_splash.png',
+                      'assets/images/rectangle_splash.png',
                       fit: BoxFit.fill,
                       filterQuality: FilterQuality.high,
                     ),
@@ -206,7 +223,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         ],
                       ),
                       child: Image.asset(
-                        'assets/logo.png',
+                        'assets/images/logo.png',
                         fit: BoxFit.contain,
                       ),
                     ),

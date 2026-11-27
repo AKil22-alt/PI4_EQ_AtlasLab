@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:apppoc/models/patrimonio_model.dart';
 import 'package:apppoc/screen/Home.dart';
+import 'package:apppoc/screen/Scanner.dart';
 
 void main() {
   test('PatrimonioModel parses dados.json correctly', () {
@@ -134,6 +135,90 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Nenhuma atividade encontrada com "inexistente_xyz"'), findsOneWidget);
+    });
+  });
+
+  group('AtivoSerializer & 3D Model Tests', () {
+    test('mapeia campos do AtivoSerializer e resolve modelos 3D com normalização de acentos', () {
+      final computador = PatrimonioModel.fromJson({
+        'id_ativos': 15,
+        'nome': 'Micro-Computador Ágil Lab',
+        'qr_code': 'ATLASLAB-PC15',
+        'status': true,
+        'descricao': 'Desktop de análise',
+        'local_origem_detalhes': {'id_sala': 1, 'nome': 'Depósito'},
+        'local_atual_detalhes': {'id_sala': 4, 'nome': 'Lab Informática 02'},
+        'grupo_detalhes': {'id_grupo_a': 2, 'nome': 'Estações de Trabalho'},
+      });
+
+      expect(computador.idAtivos, 15);
+      expect(computador.qrCode, 'ATLASLAB-PC15');
+      expect(computador.status, 'Ativo');
+      expect(computador.isAtivo, isTrue);
+      expect(computador.salaOrigemNome, 'Depósito');
+      expect(computador.salaAtualNome, 'Lab Informática 02');
+      expect(computador.grupoNome, 'Estações de Trabalho');
+      expect(computador.modelo3dAsset, 'assets/models3d/computador.glb');
+
+      final monitor = PatrimonioModel.fromJson({
+        'id_ativos': 16,
+        'nome': 'MONITÓR 27 Polegadas',
+        'qr_code': 'ATLASLAB-MON16',
+        'status': false,
+        'local_atual_detalhes': {'id_sala': 4, 'nome': 'Lab Informática 02'},
+        'grupo_detalhes': {'id_grupo_a': 3, 'nome': 'Periféricos'},
+      });
+      expect(monitor.status, 'Inativo');
+      expect(monitor.isAtivo, isFalse);
+      expect(monitor.modelo3dAsset, 'assets/models3d/monitor.glb');
+
+      final outro = PatrimonioModel.fromJson({
+        'id_ativos': 17,
+        'nome': 'Estufa de Secagem',
+        'qr_code': 'ATLASLAB-EST17',
+        'status': true,
+      });
+      expect(outro.modelo3dAsset, isNull);
+    });
+
+    testWidgets('QRScannerPage exibe modelo 3D, controles e card de verificação para Computador', (tester) async {
+      final computador = PatrimonioModel.fromJson({
+        'id_ativos': 15,
+        'nome': 'Computador Dell OptiPlex',
+        'qr_code': 'ATLASLAB-PC15',
+        'status': true,
+        'local_atual_detalhes': {'id_sala': 4, 'nome': 'Lab B-101'},
+        'grupo_detalhes': {'id_grupo_a': 2, 'nome': 'Computadores'},
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: QRScannerPage(
+            ativoInicial: computador,
+            modelViewerBuilder: (_, path, escala, autoRotate) =>
+                Text('3D:$path:${escala.toStringAsFixed(2)}:$autoRotate'),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.text('3D:assets/models3d/computador.glb:1.00:true'),
+        findsOneWidget,
+      );
+      expect(find.text('Computador Dell OptiPlex'), findsOneWidget);
+      expect(find.text('QR: ATLASLAB-PC15'), findsOneWidget);
+      expect(find.text('Lab B-101'), findsOneWidget);
+      expect(find.text('Computadores'), findsOneWidget);
+      expect(find.text('Ler outro QR Code'), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Aumentar modelo 3D'));
+      await tester.pump();
+      expect(
+        find.text('3D:assets/models3d/computador.glb:1.15:true'),
+        findsOneWidget,
+      );
     });
   });
 }

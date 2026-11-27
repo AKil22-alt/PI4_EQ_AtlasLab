@@ -1,5 +1,6 @@
 // ignore_for_file: file_names
 import 'package:apppoc/screen/ScannerScreen.dart';
+import 'package:apppoc/screen/login_screen.dart';
 import 'package:apppoc/services/api_service.dart';
 import 'package:apppoc/ui/_core/app_colors.dart';
 import 'package:flutter/material.dart';
@@ -51,12 +52,78 @@ class _TelaHomeState extends State<TelaHome> {
       TextEditingController();
   String _filtroAtividades = '';
 
+  bool _saindo = false;
+
   // =======================================================================
   // ÁREA DE INTEGRAÇÃO COM LOGIN / AUTENTICAÇÃO:
-  // Exibe dinamicamente o nome da pessoa logada vindo da API ou parâmetro.
+  // Exibe dinamicamente o nome e cargo da pessoa logada vindo da API.
   // =======================================================================
   String? get _nomeUsuarioLogado =>
       widget.nomeUsuario ?? widget.api?.usuarioLogado?['nome'] as String?;
+
+  String? get _emailUsuarioLogado =>
+      widget.api?.usuarioLogado?['email'] as String?;
+
+  String? get _cargoUsuarioLogado =>
+      widget.api?.usuarioLogado?['cargo'] as String?;
+
+  String _formatarCargo(String? cargo) {
+    switch (cargo?.toUpperCase()) {
+      case 'ADM':
+        return 'Administrador';
+      case 'TEC':
+        return 'Técnico';
+      case 'CLB':
+        return 'Colaborador';
+      default:
+        return cargo ?? '';
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _validarSessaoInicial();
+  }
+
+  Future<void> _validarSessaoInicial() async {
+    final api = widget.api;
+    if (api == null || !api.isAutenticado || api.usuarioLogado != null) return;
+    try {
+      await api.obterUsuarioAtual();
+      if (mounted) setState(() {});
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        await api.logout();
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => LoginScreen(api: api)),
+          (_) => false,
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _realizarLogout() async {
+    if (_saindo) return;
+    setState(() => _saindo = true);
+    try {
+      await widget.api?.logout();
+    } finally {
+      if (mounted) {
+        setState(() => _saindo = false);
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LoginScreen(api: widget.api ?? ApiService()),
+          ),
+          (_) => false,
+        );
+      }
+    }
+  }
 
   // Lista de atividades recentes no sistema de patrimônio do AtlasLab
   final List<AtividadeItem> _todasAtividades = const [
@@ -126,7 +193,9 @@ class _TelaHomeState extends State<TelaHome> {
   void _navegarParaScanner() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+      MaterialPageRoute(
+        builder: (_) => ScannerScreen(api: widget.api),
+      ),
     );
   }
 
@@ -207,7 +276,7 @@ class _TelaHomeState extends State<TelaHome> {
           // Imagem de fundo rectangle_splash.png
           Positioned.fill(
             child: Image.asset(
-              'assets/rectangle_splash.png',
+              'assets/images/rectangle_splash.png',
               fit: BoxFit.cover,
               alignment: Alignment.center,
               filterQuality: FilterQuality.high,
@@ -331,92 +400,145 @@ class _TelaHomeState extends State<TelaHome> {
                     ],
                   ),
 
-                  // Ícone de Perfil / Notificações
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.person_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      tooltip: 'Perfil',
-                      onPressed: () {
-                        final usuario = widget.api?.usuarioLogado;
-                        final nome = _nomeUsuarioLogado;
-                        final email = usuario?['email'] as String?;
-                        final cargo = usuario?['cargo'] as String?;
-
-                        showDialog<void>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            title: const Row(
-                              children: [
-                                Icon(Icons.account_circle_rounded,
-                                    color: AppColors.mainColor, size: 28),
-                                SizedBox(width: 8),
-                                Text('Perfil do Usuário'),
-                              ],
-                            ),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  nome != null && nome.isNotEmpty
-                                      ? nome
-                                      : 'Usuário AtlasLab',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                if (email != null) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'E-mail: $email',
-                                    style: const TextStyle(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                                if (cargo != null) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Cargo: $cargo',
-                                    style: const TextStyle(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text(
-                                  'Fechar',
-                                  style: TextStyle(
-                                    color: AppColors.mainColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
+                  // Ícones de Perfil e Logout
+                  Row(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            width: 1.5,
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.person_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          tooltip: 'Perfil',
+                          onPressed: () {
+                            final nome = _nomeUsuarioLogado;
+                            final email = _emailUsuarioLogado;
+                            final cargo = _cargoUsuarioLogado;
+
+                            showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                title: const Row(
+                                  children: [
+                                    Icon(Icons.account_circle_rounded,
+                                        color: AppColors.mainColor, size: 28),
+                                    SizedBox(width: 8),
+                                    Text('Perfil do Usuário'),
+                                  ],
+                                ),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      nome != null && nome.isNotEmpty
+                                          ? nome
+                                          : 'Usuário AtlasLab',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    if (email != null && email.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'E-mail: $email',
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                    if (cargo != null && cargo.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Cargo: ${_formatarCargo(cargo)} ($cargo)',
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                actions: [
+                                  if (widget.api != null)
+                                    TextButton.icon(
+                                      onPressed: () {
+                                        Navigator.pop(ctx);
+                                        _realizarLogout();
+                                      },
+                                      icon: const Icon(
+                                        Icons.logout_rounded,
+                                        color: AppColors.statusInativo,
+                                        size: 18,
+                                      ),
+                                      label: const Text(
+                                        'Sair',
+                                        style: TextStyle(
+                                          color: AppColors.statusInativo,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text(
+                                      'Fechar',
+                                      style: TextStyle(
+                                        color: AppColors.mainColor,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      if (widget.api != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: IconButton(
+                            icon: _saindo
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.logout_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                            tooltip: 'Sair da conta',
+                            onPressed: _saindo ? null : _realizarLogout,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
